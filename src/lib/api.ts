@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AppUpdate, EnqueueItem, EnqueueOutcome, PlaylistSummary, ProbeOutcome, Snapshot } from "@/lib/downly";
+import type { AppUpdate, CookiesBrowser, EnqueueItem, EnqueueOutcome, PlaylistSummary, ProbeOutcome, Snapshot } from "@/lib/downly";
 
 export function getState() {
 	return invoke<Snapshot>("state");
@@ -42,6 +42,14 @@ export function setDownloadDir(path: string) {
 	return invoke<void>("set_download_dir", { path });
 }
 
+export function setCookiesBrowser(browser: CookiesBrowser) {
+	return invoke<void>("set_cookies_browser", { browser });
+}
+
+export function importCookiesFile(path: string) {
+	return invoke<void>("import_cookies_file", { path });
+}
+
 export function openPath(path: string) {
 	return invoke<void>("open_path", { path });
 }
@@ -68,6 +76,18 @@ export function archiveSessionAll() {
 
 export function retryFailedSession() {
 	return invoke<number>("retry_failed_session");
+}
+
+export function retryFailedSessionItem(id: string) {
+	return invoke<void>("retry_failed_session_item", { id });
+}
+
+export function retryCancelledSessionItem(id: string) {
+	return invoke<void>("retry_cancelled_session_item", { id });
+}
+
+export function removeCancelledSessionItem(id: string) {
+	return invoke<void>("remove_cancelled_session_item", { id });
 }
 
 export function archiveCompletedSessionAll() {

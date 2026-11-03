@@ -49,12 +49,13 @@ const sidebarStyle = { "--sidebar-width": "4.5rem" } as CSSProperties;
 
 export default function App() {
 	const { t } = useTranslation();
-	const { snapshot } = useDownly();
+	const { snapshot, ready } = useDownly();
 	const [page, setPage] = useState<PageId>("queue");
 	const [update, setUpdate] = useState<AppUpdate | null>(null);
 	const [offers, setOffers] = useState<{ app: AppUpdate | null; ytdlp: AppUpdate | null } | null>(null);
 	const [updatesOpen, setUpdatesOpen] = useState(false);
 	const [askClose, setAskClose] = useState(false);
+	const [staleCookiesOpen, setStaleCookiesOpen] = useState(false);
 
 	const downloading = snapshot.queue.some((item) => item.status === "active") || snapshot.progress != null;
 	const hasUpdates = Boolean(offers?.app || offers?.ytdlp);
@@ -77,6 +78,13 @@ export default function App() {
 			});
 		});
 	}, []);
+
+	useEffect(() => {
+		const updatedAt = snapshot.settings.cookies_updated_at;
+		if (ready && snapshot.settings.cookies_browser === "manual" && updatedAt != null && Date.now() / 1000 - updatedAt >= 7 * 24 * 60 * 60) {
+			setStaleCookiesOpen(true);
+		}
+	}, [ready, snapshot.settings.cookies_browser, snapshot.settings.cookies_updated_at]);
 
 	useEffect(() => {
 		const window = getCurrentWindow();
@@ -175,6 +183,18 @@ export default function App() {
 								}}>
 								{t("close.quit")}
 							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+				<AlertDialog open={staleCookiesOpen} onOpenChange={setStaleCookiesOpen}>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>{t("settings.cookiesStaleTitle")}</AlertDialogTitle>
+							<AlertDialogDescription>{t("settings.cookiesStaleBody")}</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>{t("settings.notNow")}</AlertDialogCancel>
+							<AlertDialogAction onClick={() => { setStaleCookiesOpen(false); setPage("settings"); }}>{t("settings.cookiesOpenSettings")}</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
 				</AlertDialog>

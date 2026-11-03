@@ -24,8 +24,30 @@
 		"inputMode": "İndirme modu",
 		"single": "Tekli",
 		"multiple": "Çoklu",
-		"metadataRetrying": "Metadata alınamadı, {{seconds}} saniye sonra tekrar deneniyor ({{attempt}}/{{total}).",
+		"metadataRetrying": "Metadata alınamadı, {{seconds}} saniye sonra tekrar deneniyor ({{attempt}}/{{total}}).",
 		"metadataFailed": "Metadata alınamadı: {{error}}",
+		"cookie": {
+			"dismiss": "Kapat",
+			"metadata": {
+				"title": "Çerez ayarı gerekiyor olabilir",
+				"body": "Video bilgisi üç denemede alınamadı ve hata mesajı çerezlerle ilgili. Ayarlar'daki Tarayıcı çerezleri bölümünden Firefox'u seçebilir veya Manuel modda Netscape biçimli cookies.txt dosyanızı ekleyebilirsiniz."
+			},
+			"database_locked": {
+				"title": "Tarayıcı çerez veritabanı kilitli",
+				"body": "Tarayıcıyı tamamen kapatın ve yeniden deneyin. yt-dlp bu isteği seçili tarayıcının çerezleriyle tekrar deneyecek.",
+				"action": "Tarayıcıyı kapattım, yeniden dene"
+			},
+			"decryption": {
+				"title": "Tarayıcı çerezleri çözülemiyor",
+				"body": "Seçili tarayıcı çerezleri yt-dlp'nin okuyamadığı bir yöntemle şifreliyor. Ayarlar'dan oturum açık olan başka bir tarayıcı seçin.",
+				"action": "Kapat"
+			},
+			"authentication": {
+				"title": "Tarayıcıda oturum açmak gerekiyor",
+				"body": "Gerekli hesapla seçili tarayıcıda oturum açın, ardından bu isteği yeniden deneyin.",
+				"action": "Oturum açtım, yeniden dene"
+			}
+		},
 		"retryMetadata": "Yeniden dene",
 		"lookUp": "Video bilgilerini getir",
 		"clear": "Temizle",
@@ -133,6 +155,24 @@
 		"browse": "Gözat",
 		"theme": "Tema",
 		"folder": "İndirme klasörü",
+		"cookiesBrowser": "Tarayıcı çerezleri",
+		"cookiesBrowserInfo": "Tarayıcı çerezleri hakkında bilgi",
+		"cookiesBrowserTooltip": "Üyelik veya özel içeriklere erişmek için Firefox'ta açık olan oturumu yt-dlp'nin --cookies-from-browser firefox seçeneğiyle kullanır. Firefox'ta hesabına giriş yapmış olmalısın.",
+		"cookiesBrowserFailed": "Tarayıcı çerez ayarı kaydedilemedi.",
+		"cookiesManualTitle": "Manuel çerez dosyası",
+		"cookiesManualBody": "Eklentide “Export all cookies” seçeneğini kullanarak tüm çerezleri dışa aktarın. Dosyanın Netscape cookies.txt biçiminde olması gerekir. İndirdiğiniz .txt dosyasını burada seçin; dosya bu cihazda yerel olarak saklanır.",
+		"cookiesExtension": "Önerilen eklenti: Get cookies.txt LOCALLY",
+		"cookiesChooseFile": "TXT dosyası seç",
+		"cookiesReplace": "Dosyayı yenile",
+		"cookiesUpdated": "Dosya tarihi: {{date}}.",
+		"cookiesStaleTitle": "Çerezleri yenilemeniz önerilir",
+		"cookiesStaleBody": "Manuel çerez dosyanız bir haftadan eski. Oturumun güncel kalması için eklentiyle “Export all cookies” seçeneğini kullanıp Netscape biçiminde yeni bir cookies.txt dosyası ekleyin.",
+		"cookiesOpenSettings": "Ayarları aç",
+		"cookiesBrowsers": {
+			"disabled": "Kapalı",
+			"firefox": "Firefox",
+			"manual": "Manuel (cookies.txt)"
+		},
 		"saveFolder": "Klasörü kaydet",
 		"ytdlp": "yt-dlp",
 		"ytdlpUnknown": "yt-dlp bulunamadı",

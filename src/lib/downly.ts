@@ -95,6 +95,7 @@ export type EnqueueItem = {
 	title: string;
 	thumbnail: string | null;
 	selection: Selection;
+	size_bytes: number | null;
 };
 
 export type EnqueueOutcome =
@@ -114,6 +115,7 @@ export type QueueEntry = {
 	thumbnail: string | null;
 	selection: Selection;
 	status: "pending" | "active";
+	size_bytes: number | null;
 };
 
 export type HistoryItem = {
@@ -141,9 +143,11 @@ export type Snapshot = {
 	queue: QueueEntry[];
 	session: HistoryItem[];
 	history: HistoryItem[];
-	settings: { download_dir: string };
+	settings: { download_dir: string; cookies_browser: CookiesBrowser; cookies_updated_at: number | null };
 	progress: ActiveProgress | null;
 };
+
+export type CookiesBrowser = "disabled" | "firefox" | "manual";
 
 export type AppUpdate = {
 	version: string;

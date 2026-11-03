@@ -6,6 +6,39 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     pub download_dir: String,
+    #[serde(default)]
+    pub cookies_browser: CookiesBrowser,
+    #[serde(default)]
+    pub cookies_updated_at: Option<u64>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "String")]
+#[serde(rename_all = "snake_case")]
+pub enum CookiesBrowser {
+    #[default]
+    Disabled,
+    Firefox,
+    Manual,
+}
+
+impl From<String> for CookiesBrowser {
+    fn from(browser: String) -> Self {
+        match browser.as_str() {
+            "firefox" => Self::Firefox,
+            "manual" => Self::Manual,
+            _ => Self::Disabled,
+        }
+    }
+}
+
+impl CookiesBrowser {
+    pub fn ytdlp_name(self) -> Option<&'static str> {
+        match self {
+            Self::Disabled | Self::Manual => None,
+            Self::Firefox => Some("firefox"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -31,6 +64,8 @@ pub struct Item {
     pub title: String,
     pub thumbnail: Option<String>,
     pub selection: Selection,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -42,6 +77,7 @@ pub struct QueueEntry {
     pub thumbnail: Option<String>,
     pub selection: Selection,
     pub status: QueueStatus,
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -87,6 +123,8 @@ pub struct EnqueueItem {
     #[serde(default)]
     pub thumbnail: Option<String>,
     pub selection: Selection,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -134,6 +172,8 @@ impl Engine {
             history: Vec::new(),
             settings: Settings {
                 download_dir: download_dir.into(),
+                cookies_browser: CookiesBrowser::default(),
+                cookies_updated_at: None,
             },
             progress: None,
             running: false,
@@ -319,10 +359,56 @@ impl Engine {
                 title: entry.title,
                 thumbnail: entry.thumbnail,
                 selection: entry.selection,
+                size_bytes: None,
             });
             retried += 1;
         }
         retried
+    }
+
+    pub fn retry_failed_session_item(&mut self, id: &str) -> Result<bool, String> {
+        let entry = self
+            .session
+            .iter()
+            .find(|item| item.id == id && item.status == HistoryStatus::Failed)
+            .cloned()
+            .ok_or_else(|| "failed download not found".to_string())?;
+        if self.contains_video(&entry.video_id) {
+            return Ok(false);
+        }
+        self.pending.push(Item {
+            id: new_id(),
+            video_id: entry.video_id,
+            url: entry.url,
+            title: entry.title,
+            thumbnail: entry.thumbnail,
+            selection: entry.selection,
+            size_bytes: None,
+        });
+        Ok(true)
+    }
+
+    pub fn retry_cancelled_session_item(&mut self, id: &str) -> Result<bool, String> {
+        let index = self
+            .session
+            .iter()
+            .position(|item| item.id == id && item.status == HistoryStatus::Cancelled)
+            .ok_or_else(|| "cancelled download not found".to_string())?;
+        let entry = self.session[index].clone();
+        if self.contains_video(&entry.video_id) {
+            return Ok(false);
+        }
+        self.pending.push(Item {
+            id: new_id(),
+            video_id: entry.video_id,
+            url: entry.url,
+            title: entry.title,
+            thumbnail: entry.thumbnail,
+            selection: entry.selection,
+            size_bytes: None,
+        });
+        self.session.remove(index);
+        Ok(true)
     }
 
     pub fn request_stop(&mut self) {
@@ -362,6 +448,18 @@ impl Engine {
         Ok(())
     }
 
+    pub fn remove_cancelled_session_item(&mut self, id: &str) -> Result<(), String> {
+        let Some(index) = self
+            .session
+            .iter()
+            .position(|item| item.id == id && item.status == HistoryStatus::Cancelled)
+        else {
+            return Err("not found".into());
+        };
+        self.session.remove(index);
+        Ok(())
+    }
+
     pub fn remove_pending(&mut self, id: &str) -> Result<(), String> {
         if self.active.as_ref().is_some_and(|item| item.id == id) {
             return Err("download is active".into());
@@ -387,6 +485,7 @@ impl Engine {
             title: entry.title,
             thumbnail: entry.thumbnail,
             selection: entry.selection,
+            size_bytes: None,
         });
         Ok(())
     }
@@ -464,6 +563,7 @@ impl Engine {
             title,
             thumbnail: item.thumbnail,
             selection: item.selection,
+            size_bytes: item.size_bytes,
         });
         EnqueueOutcome::Added { id, video_id }
     }
@@ -518,6 +618,7 @@ fn entry_from(item: &Item, status: QueueStatus) -> QueueEntry {
         thumbnail: item.thumbnail.clone(),
         selection: item.selection.clone(),
         status,
+        size_bytes: item.size_bytes,
     }
 }
 
@@ -535,14 +636,32 @@ pub fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        Engine, EnqueueItem, EnqueueOutcome, HistoryStatus, QueueStatus, SkipReason,
-        default_download_dir,
+        CookiesBrowser, Engine, EnqueueItem, EnqueueOutcome, HistoryItem, HistoryStatus,
+        QueueStatus, Settings, SkipReason, default_download_dir,
     };
     use crate::engine::classify::RejectReason;
     use crate::engine::format::{Preset, Selection};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn cookies_browser_settings_tokens_round_trip_and_default_to_disabled() {
+        for (browser, token) in [
+            (CookiesBrowser::Disabled, "disabled"),
+            (CookiesBrowser::Firefox, "firefox"),
+        ] {
+            let encoded = serde_json::to_string(&browser).unwrap();
+            assert_eq!(encoded, format!("\"{token}\""));
+            assert_eq!(serde_json::from_str::<CookiesBrowser>(&encoded).unwrap(), browser);
+        }
+        let old_settings = r#"{"download_dir":"D:/Downloads"}"#;
+        let settings: Settings = serde_json::from_str(old_settings).unwrap();
+        assert_eq!(settings.cookies_browser, CookiesBrowser::Disabled);
+        let legacy_settings = r#"{"download_dir":"D:/Downloads","cookies_browser":"chrome"}"#;
+        let settings: Settings = serde_json::from_str(legacy_settings).unwrap();
+        assert_eq!(settings.cookies_browser, CookiesBrowser::Disabled);
+    }
 
     fn scratch() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -568,6 +687,7 @@ mod tests {
                 save_thumbnail: false,
                 label: String::new(),
             },
+            size_bytes: None,
         }
     }
 

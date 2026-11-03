@@ -1,6 +1,6 @@
 use crate::engine::bins::ytdlp_filename;
 use crate::engine::media::{PlaylistSummary, ProbeOutcome};
-use crate::engine::queue::{EnqueueItem, EnqueueOutcome, Snapshot};
+use crate::engine::queue::{CookiesBrowser, EnqueueItem, EnqueueOutcome, Snapshot};
 use crate::engine::verify::{YTDLP_EXE_URL, YTDLP_SUMS_URL, install_verified};
 use crate::engine::version::{APP_UPDATE_REPO, AppUpdate, parse_release};
 use crate::net;
@@ -72,6 +72,16 @@ pub fn set_download_dir(app: AppHandle, path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn set_cookies_browser(app: AppHandle, browser: CookiesBrowser) -> Result<(), String> {
+    runner::set_cookies_browser(&app, browser)
+}
+
+#[tauri::command]
+pub fn import_cookies_file(app: AppHandle, path: String) -> Result<(), String> {
+    runner::import_cookies_file(&app, path)
+}
+
+#[tauri::command]
 pub fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     let path = path.trim();
     if path.is_empty() {
@@ -116,6 +126,21 @@ pub fn archive_session_all(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn retry_failed_session(app: AppHandle) -> Result<usize, String> {
     runner::retry_failed_session(&app)
+}
+
+#[tauri::command]
+pub fn retry_failed_session_item(app: AppHandle, id: String) -> Result<(), String> {
+    runner::retry_failed_session_item(&app, id)
+}
+
+#[tauri::command]
+pub fn retry_cancelled_session_item(app: AppHandle, id: String) -> Result<(), String> {
+    runner::retry_cancelled_session_item(&app, id)
+}
+
+#[tauri::command]
+pub fn remove_cancelled_session_item(app: AppHandle, id: String) -> Result<(), String> {
+    runner::remove_cancelled_session_item(&app, id)
 }
 
 #[tauri::command]

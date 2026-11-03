@@ -30,6 +30,8 @@ import {
 	cancelItem,
 	deleteCompletedSessionItem,
 	retryFailedSession,
+	retryCancelledSessionItem,
+	removeCancelledSessionItem,
 	revealPath,
 } from "@/lib/api";
 import { toastError } from "@/lib/errors";
@@ -153,6 +155,7 @@ function QueueRow({ item, snapshot, best }: { item: QueueEntry; snapshot: Snapsh
 					<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 						<Badge variant={item.status === "active" ? "default" : "outline"}>{t(`queue.${item.status}`)}</Badge>
 						<Badge variant="outline">{describeSelection(item.selection, best)}</Badge>
+						{item.size_bytes != null ? <Badge variant="secondary">{formatBytes(item.size_bytes)}</Badge> : null}
 					</div>
 					{progress ? (
 						<div className="flex flex-col gap-1">
@@ -170,12 +173,12 @@ function QueueRow({ item, snapshot, best }: { item: QueueEntry; snapshot: Snapsh
 				(item.status === "pending" || item.status === "active") ? (
 					<Button
 						type="button"
-						variant="destructive"
+						variant={item.status === "active" ? "destructive" : "outline"}
 						size="icon"
-						className="bg-destructive/10 text-destructive hover:bg-destructive/20"
+						className={item.status === "active" ? "bg-destructive/10 text-destructive hover:bg-destructive/20" : undefined}
 						aria-label={t(item.status === "active" ? "queue.cancelDownload" : "queue.remove")}
 						onClick={() => void cancelItem(item.id).catch((err) => toastError(err, t("queue.errorFailed")))}>
-						<XIcon />
+						{item.status === "active" ? <XIcon /> : <Trash2Icon />}
 					</Button>
 				) : null
 			}
@@ -262,7 +265,26 @@ function SessionRow({ item, best }: { item: HistoryItem; best: string }) {
 							</AlertDialogContent>
 						</AlertDialog>
 					</>
-					) : null
+				) : item.status === "cancelled" ? (
+					<div className="flex gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							size="icon"
+							aria-label={t("history.retry")}
+							onClick={() => void retryCancelledSessionItem(item.id).catch((err) => toastError(err, t("queue.errorFailed")))}>
+							<RefreshCwIcon />
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="icon"
+							aria-label={t("queue.remove")}
+							onClick={() => void removeCancelledSessionItem(item.id).catch((err) => toastError(err, t("queue.errorFailed")))}>
+							<Trash2Icon />
+						</Button>
+					</div>
+				) : null
 			}
 		/>
 	);

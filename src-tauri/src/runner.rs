@@ -10,7 +10,9 @@ use crate::engine::format::{FormatKind, Preset, Selection};
 use crate::engine::media::{PlaylistSummary, ProbeOutcome, parse_probe, summary_from_outcome};
 use crate::engine::proc::{Capture, capture};
 use crate::engine::progress::{destination_path, parse_progress, printed_path};
-use crate::engine::queue::{EnqueueItem, EnqueueOutcome, HistoryStatus, Item, Snapshot};
+use crate::engine::queue::{
+    CookiesBrowser, EnqueueItem, EnqueueOutcome, HistoryStatus, Item, Snapshot,
+};
 use crate::engine::retry::{MAX_ATTEMPTS, should_retry};
 use crate::state::{Downly, lock};
 use crate::store;
@@ -18,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub fn fallback_downloads() -> PathBuf {
@@ -56,10 +58,16 @@ pub fn expand_playlist(app: &AppHandle, url: String) -> Result<PlaylistSummary, 
     }
     let ytdlp = ytdlp_path(app)?;
     let deno = js_runtime(app);
+    let (cookies_browser, cookies_file) = cookie_options(app)?;
     let captured = run_retry(
         app,
         &ytdlp,
-        &probe_playlist_args(&url, deno.as_deref()),
+        &probe_playlist_args(
+            &url,
+            deno.as_deref(),
+            cookies_browser.ytdlp_name(),
+            cookies_file.as_deref(),
+        ),
         false,
         &AtomicBool::new(false),
         |_| {},
@@ -179,6 +187,57 @@ pub fn set_download_dir(app: &AppHandle, path: String) -> Result<(), String> {
     Ok(())
 }
 
+pub fn set_cookies_browser(app: &AppHandle, browser: CookiesBrowser) -> Result<(), String> {
+    if browser == CookiesBrowser::Manual {
+        return Err("Import a cookies.txt file to enable manual cookies".into());
+    }
+    let downly = app.state::<Downly>();
+    {
+        let mut engine = lock(&downly.engine);
+        engine.settings.cookies_browser = browser;
+        store::save(&downly.data_dir, &engine)?;
+    }
+    publish(app);
+    Ok(())
+}
+
+pub fn import_cookies_file(app: &AppHandle, source: String) -> Result<(), String> {
+    let source = PathBuf::from(source);
+    if !source
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
+    {
+        return Err("Choose a .txt cookie file".into());
+    }
+    let contents = std::fs::read(&source).map_err(|err| err.to_string())?;
+    let text = String::from_utf8_lossy(&contents);
+    if !text.lines().any(|line| {
+        let line = line.trim();
+        !line.is_empty()
+            && (!line.starts_with('#') || line.starts_with("#HttpOnly_"))
+            && line.split('\t').count() == 7
+    }) {
+        return Err("Cookie file is empty or is not in Netscape format".into());
+    }
+    let downly = app.state::<Downly>();
+    let path = downly.data_dir.join("cookies.txt");
+    std::fs::write(&path, contents).map_err(|err| err.to_string())?;
+    {
+        let mut engine = lock(&downly.engine);
+        engine.settings.cookies_browser = CookiesBrowser::Manual;
+        engine.settings.cookies_updated_at = Some(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        );
+        store::save(&downly.data_dir, &engine)?;
+    }
+    publish(app);
+    Ok(())
+}
+
 pub fn retry_history(app: &AppHandle, id: String) -> Result<(), String> {
     let downly = app.state::<Downly>();
     {
@@ -237,6 +296,49 @@ pub fn retry_failed_session(app: &AppHandle) -> Result<usize, String> {
         publish(app);
     }
     Ok(retried)
+}
+
+pub fn retry_failed_session_item(app: &AppHandle, id: String) -> Result<(), String> {
+    let downly = app.state::<Downly>();
+    let added = {
+        let mut engine = lock(&downly.engine);
+        let added = engine.retry_failed_session_item(&id)?;
+        if added {
+            store::save(&downly.data_dir, &engine)?;
+        }
+        added
+    };
+    if added {
+        publish(app);
+    }
+    Ok(())
+}
+
+pub fn retry_cancelled_session_item(app: &AppHandle, id: String) -> Result<(), String> {
+    let downly = app.state::<Downly>();
+    let added = {
+        let mut engine = lock(&downly.engine);
+        let added = engine.retry_cancelled_session_item(&id)?;
+        if added {
+            store::save(&downly.data_dir, &engine)?;
+        }
+        added
+    };
+    if added {
+        publish(app);
+    }
+    Ok(())
+}
+
+pub fn remove_cancelled_session_item(app: &AppHandle, id: String) -> Result<(), String> {
+    let downly = app.state::<Downly>();
+    {
+        let mut engine = lock(&downly.engine);
+        engine.remove_cancelled_session_item(&id)?;
+        store::save(&downly.data_dir, &engine)?;
+    }
+    publish(app);
+    Ok(())
 }
 
 pub fn archive_completed_session_all(app: &AppHandle) -> Result<usize, String> {
@@ -482,12 +584,18 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
         return ItemOutcome::cancelled();
     }
     let deno = js_runtime(app);
+    let (cookies_browser, cookies_file) = match cookie_options(app) {
+        Ok(options) => options,
+        Err(err) => return ItemOutcome::failed(err),
+    };
     let args = match download_args(
         &item.selection,
         &dir,
         &tools.ffmpeg_dir,
         &item.url,
         deno.as_deref(),
+        cookies_browser.ytdlp_name(),
+        cookies_file.as_deref(),
         file_contains_id(&dir, &item.video_id).then_some(item.id.as_str()),
     ) {
         Ok(args) => args,
@@ -640,10 +748,19 @@ fn mp4_conversion_args(source: &Path, temp: &Path, recode: bool) -> Vec<String> 
 
 fn preflight(app: &AppHandle, ytdlp: &Path, url: &str, cancel: &AtomicBool) -> Preflight {
     let deno = js_runtime(app);
+    let (cookies_browser, cookies_file) = match cookie_options(app) {
+        Ok(options) => options,
+        Err(_) => return Preflight::Go,
+    };
     let captured = match run_retry(
         app,
         ytdlp,
-        &probe_video_args(url, deno.as_deref()),
+        &probe_video_args(
+            url,
+            deno.as_deref(),
+            cookies_browser.ytdlp_name(),
+            cookies_file.as_deref(),
+        ),
         true,
         cancel,
         |_| {},
@@ -669,10 +786,21 @@ fn preflight(app: &AppHandle, ytdlp: &Path, url: &str, cancel: &AtomicBool) -> P
 fn run_probe(app: &AppHandle, url: &str, playlist: bool) -> Result<ProbeOutcome, String> {
     let ytdlp = ytdlp_path(app)?;
     let deno = js_runtime(app);
+    let (cookies_browser, cookies_file) = cookie_options(app)?;
     let args = if playlist {
-        probe_playlist_args(url, deno.as_deref())
+        probe_playlist_args(
+            url,
+            deno.as_deref(),
+            cookies_browser.ytdlp_name(),
+            cookies_file.as_deref(),
+        )
     } else {
-        probe_video_args(url, deno.as_deref())
+        probe_video_args(
+            url,
+            deno.as_deref(),
+            cookies_browser.ytdlp_name(),
+            cookies_file.as_deref(),
+        )
     };
     let captured = run_retry(app, &ytdlp, &args, false, &AtomicBool::new(false), |_| {})?;
     if captured.cancelled {
@@ -682,6 +810,21 @@ fn run_probe(app: &AppHandle, url: &str, playlist: bool) -> Result<ProbeOutcome,
         return Err(captured.error_text());
     }
     parse_probe(&captured.stdout, url)
+}
+
+fn cookie_options(app: &AppHandle) -> Result<(CookiesBrowser, Option<PathBuf>), String> {
+    let downly = app.state::<Downly>();
+    let browser = lock(&downly.engine).settings.cookies_browser;
+    let file = if browser == CookiesBrowser::Manual {
+        let path = downly.data_dir.join("cookies.txt");
+        if !path.is_file() {
+            return Err("Manual cookie file is missing. Add it again in Settings.".into());
+        }
+        Some(path)
+    } else {
+        None
+    };
+    Ok((browser, file))
 }
 
 fn run_retry(

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckIcon } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { CheckIcon, CircleHelpIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldTitle } from "@/components/ui/field";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,12 +10,15 @@ import { DownloadFolderField } from "@/components/downly/download-folder-field";
 import { PageShell } from "@/components/downly/page-shell";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Spinner } from "@/components/ui/spinner";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chooseLanguage, type Language } from "@/i18n";
 import { useTheme, type ThemeChoice } from "@/theme";
-import { appVersion, checkAppUpdate, checkYtdlpUpdate, updateYtdlp, ytdlpInfo } from "@/lib/api";
+import { appVersion, checkAppUpdate, checkYtdlpUpdate, importCookiesFile, setCookiesBrowser, updateYtdlp, ytdlpInfo } from "@/lib/api";
 import { toastError } from "@/lib/errors";
-import type { AppUpdate, Snapshot } from "@/lib/downly";
+import type { AppUpdate, CookiesBrowser, Snapshot } from "@/lib/downly";
 
 const languages: Language[] = ["en", "tr"];
 const themes: ThemeChoice[] = ["system", "light", "dark"];
@@ -34,6 +38,8 @@ export function SettingsPage({ snapshot }: Props) {
 	const [loading, setLoading] = useState(true);
 	const [appBusy, setAppBusy] = useState(false);
 	const [ytdlpBusy, setYtdlpBusy] = useState(false);
+	const [cookiesBusy, setCookiesBusy] = useState(false);
+	const [cookieDialogOpen, setCookieDialogOpen] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -60,6 +66,31 @@ export function SettingsPage({ snapshot }: Props) {
 
 	const appNewer = Boolean(appUpdate?.newer);
 	const ytdlpNewer = Boolean(ytdlpUpdate?.newer);
+	const cookiesBrowsers = ["disabled", "firefox", "manual"] as const;
+	const cookiesBrowserItems = cookiesBrowsers.map((browser) => ({
+		value: browser,
+		label: t(`settings.cookiesBrowsers.${browser}`),
+	}));
+
+	async function chooseCookiesFile() {
+		const picked = await open({
+			multiple: false,
+			filters: [{ name: "Netscape cookies.txt", extensions: ["txt"] }],
+			title: t("settings.cookiesManualTitle"),
+		});
+		if (typeof picked !== "string") {
+			return;
+		}
+		setCookiesBusy(true);
+		try {
+			await importCookiesFile(picked);
+			setCookieDialogOpen(false);
+		} catch (err) {
+			toastError(err, t("settings.cookiesBrowserFailed"));
+		} finally {
+			setCookiesBusy(false);
+		}
+	}
 
 	return (
 		<PageShell>
@@ -109,7 +140,63 @@ export function SettingsPage({ snapshot }: Props) {
 					</ToggleGroup>
 				</Field>
 				<DownloadFolderField path={snapshot.settings.download_dir} />
+				<Field>
+					<FieldTitle id="cookies-browser-label">
+						{t("settings.cookiesBrowser")}
+						<Tooltip>
+							<TooltipTrigger render={<button type="button" aria-label={t("settings.cookiesBrowserInfo")} className="text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full" />}>
+								<CircleHelpIcon className="size-3.5" aria-hidden="true" />
+							</TooltipTrigger>
+							<TooltipContent>{t("settings.cookiesBrowserTooltip")}</TooltipContent>
+						</Tooltip>
+					</FieldTitle>
+					<Select
+						items={cookiesBrowserItems}
+						value={snapshot.settings.cookies_browser}
+						disabled={cookiesBusy}
+						onValueChange={(value) => {
+							if (value === "manual") {
+								setCookieDialogOpen(true);
+							} else if (value === "disabled" || value === "firefox") {
+								setCookiesBusy(true);
+								void setCookiesBrowser(value as CookiesBrowser)
+									.catch((err) => toastError(err, t("settings.cookiesBrowserFailed")))
+									.finally(() => setCookiesBusy(false));
+							}
+						}}>
+						<SelectTrigger aria-labelledby="cookies-browser-label" className="w-full sm:w-64">
+							{cookiesBusy ? <Spinner data-icon="inline-start" /> : null}
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectGroup>
+								{cookiesBrowsers.map((browser) => (
+									<SelectItem key={browser} value={browser}>{t(`settings.cookiesBrowsers.${browser}`)}</SelectItem>
+								))}
+							</SelectGroup>
+						</SelectContent>
+					</Select>
+					{snapshot.settings.cookies_browser === "manual" ? (
+						<p className="text-xs text-muted-foreground">
+							{t("settings.cookiesUpdated", { date: snapshot.settings.cookies_updated_at ? new Date(snapshot.settings.cookies_updated_at * 1000).toLocaleDateString() : "" })}
+							<Button type="button" variant="link" size="sm" className="h-auto px-1" disabled={cookiesBusy} onClick={() => setCookieDialogOpen(true)}>{t("settings.cookiesReplace")}</Button>
+						</p>
+					) : null}
+				</Field>
 			</FieldGroup>
+			<Dialog open={cookieDialogOpen} onOpenChange={setCookieDialogOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>{t("settings.cookiesManualTitle")}</DialogTitle>
+						<DialogDescription>{t("settings.cookiesManualBody")}</DialogDescription>
+					</DialogHeader>
+					<a className="text-sm text-primary underline underline-offset-4" href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" onClick={(event) => { event.preventDefault(); void openUrl("https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc"); }}>{t("settings.cookiesExtension")}</a>
+					<DialogFooter>
+						<Button type="button" variant="outline" onClick={() => setCookieDialogOpen(false)}>{t("settings.notNow")}</Button>
+						<Button type="button" disabled={cookiesBusy} onClick={() => void chooseCookiesFile()}>{t("settings.cookiesChooseFile")}</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 			<div className="grid items-start gap-4 sm:grid-cols-2">
 				<Card>
 					<CardHeader>

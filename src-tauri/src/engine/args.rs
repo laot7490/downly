@@ -3,14 +3,26 @@ use std::path::Path;
 use crate::engine::filename::OUTPUT_TEMPLATE;
 use crate::engine::format::{Selection, format_args, valid_format_id};
 
-pub fn probe_video_args(url: &str, js_runtime: Option<&Path>) -> Vec<String> {
+pub fn probe_video_args(
+    url: &str,
+    js_runtime: Option<&Path>,
+    cookies_browser: Option<&str>,
+    cookies_file: Option<&Path>,
+) -> Vec<String> {
     with_options(
         vec!["-J".into(), "--no-playlist".into(), "--".into(), url.into()],
         js_runtime,
+        cookies_browser,
+        cookies_file,
     )
 }
 
-pub fn probe_playlist_args(url: &str, js_runtime: Option<&Path>) -> Vec<String> {
+pub fn probe_playlist_args(
+    url: &str,
+    js_runtime: Option<&Path>,
+    cookies_browser: Option<&str>,
+    cookies_file: Option<&Path>,
+) -> Vec<String> {
     with_options(
         vec![
             "-J".into(),
@@ -19,6 +31,8 @@ pub fn probe_playlist_args(url: &str, js_runtime: Option<&Path>) -> Vec<String> 
             url.into(),
         ],
         js_runtime,
+        cookies_browser,
+        cookies_file,
     )
 }
 
@@ -28,6 +42,8 @@ pub fn download_args(
     ffmpeg_dir: &Path,
     url: &str,
     js_runtime: Option<&Path>,
+    cookies_browser: Option<&str>,
+    cookies_file: Option<&Path>,
     duplicate_suffix: Option<&str>,
 ) -> Result<Vec<String>, String> {
     if let Some(format_id) = selection.format_id()
@@ -56,10 +72,20 @@ pub fn download_args(
     args.extend(format_args(selection));
     args.push("--".into());
     args.push(url.into());
-    Ok(with_options(args, js_runtime))
+    Ok(with_options(
+        args,
+        js_runtime,
+        cookies_browser,
+        cookies_file,
+    ))
 }
 
-fn with_options(mut args: Vec<String>, js_runtime: Option<&Path>) -> Vec<String> {
+fn with_options(
+    mut args: Vec<String>,
+    js_runtime: Option<&Path>,
+    cookies_browser: Option<&str>,
+    cookies_file: Option<&Path>,
+) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(path) = js_runtime {
         out.push("--js-runtimes".into());
@@ -67,6 +93,14 @@ fn with_options(mut args: Vec<String>, js_runtime: Option<&Path>) -> Vec<String>
         // yt-dlp/ejs challenge solvers when not already bundled with the binary
         out.push("--remote-components".into());
         out.push("ejs:github".into());
+    }
+    if let Some(browser) = cookies_browser {
+        out.push("--cookies-from-browser".into());
+        out.push(browser.into());
+    }
+    if let Some(path) = cookies_file {
+        out.push("--cookies".into());
+        out.push(path_string(path));
     }
     out.append(&mut args);
     out
@@ -99,6 +133,8 @@ mod tests {
             Path::new("D:/resources"),
             "https://www.youtube.com/watch?v=abc",
             Some(Path::new("D:/bin/deno.exe")),
+            Some("firefox"),
+            None,
             None,
         )
         .unwrap();
@@ -126,6 +162,8 @@ mod tests {
             Path::new("D:/resources"),
             "https://www.youtube.com/watch?v=abc",
             None,
+            None,
+            None,
             Some("copy-id"),
         )
         .unwrap();
@@ -136,7 +174,7 @@ mod tests {
             args.windows(2)
                 .any(|pair| { pair[0] == "--remote-components" && pair[1] == "ejs:github" })
         );
-        assert!(!args.iter().any(|arg| arg == "--cookies-from-browser"));
+        assert!(args.windows(2).any(|pair| pair == ["--cookies-from-browser", "firefox"]));
         assert_eq!(
             args.last().map(String::as_str),
             Some("https://www.youtube.com/watch?v=abc")
@@ -149,7 +187,7 @@ mod tests {
 
     #[test]
     fn probe_args_match_the_lookup_kind() {
-        let video = super::probe_video_args("https://youtu.be/abc", None);
+        let video = super::probe_video_args("https://youtu.be/abc", None, None, None);
         assert!(video.windows(2).any(|pair| pair == ["-J", "--no-playlist"]));
         assert!(!video.iter().any(|arg| arg == "--flat-playlist"));
         assert!(!video.iter().any(|arg| arg == "--js-runtimes"));
@@ -157,6 +195,8 @@ mod tests {
         let playlist = super::probe_playlist_args(
             "https://www.youtube.com/playlist?list=PLx",
             Some(Path::new("C:/deno.exe")),
+            Some("firefox"),
+            None,
         );
         assert!(playlist.iter().any(|arg| arg == "--flat-playlist"));
         assert!(!playlist.iter().any(|arg| arg == "--no-playlist"));
@@ -170,6 +210,6 @@ mod tests {
                 .windows(2)
                 .any(|pair| { pair[0] == "--remote-components" && pair[1] == "ejs:github" })
         );
-        assert!(!playlist.iter().any(|arg| arg == "--cookies-from-browser"));
+        assert!(playlist.windows(2).any(|pair| pair == ["--cookies-from-browser", "firefox"]));
     }
 }

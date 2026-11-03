@@ -13,6 +13,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let data_dir = app.path().resolve("Downly", BaseDirectory::LocalData)?;
             std::fs::create_dir_all(&data_dir)?;
@@ -40,6 +41,8 @@ pub fn run() {
             commands::cancel_item,
             commands::state,
             commands::set_download_dir,
+            commands::set_cookies_browser,
+            commands::import_cookies_file,
             commands::open_path,
             commands::reveal_path,
             commands::retry_history,
@@ -47,6 +50,9 @@ pub fn run() {
             commands::archive_session,
             commands::archive_session_all,
             commands::retry_failed_session,
+            commands::retry_failed_session_item,
+            commands::retry_cancelled_session_item,
+            commands::remove_cancelled_session_item,
             commands::archive_completed_session_all,
             commands::delete_completed_session_item,
             commands::clear_history,

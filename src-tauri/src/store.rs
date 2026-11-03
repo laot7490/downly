@@ -1,4 +1,6 @@
-use crate::engine::queue::{Engine, HistoryItem, Item, Settings, default_download_dir};
+use crate::engine::queue::{
+    CookiesBrowser, Engine, HistoryItem, Item, Settings, default_download_dir,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fs;
@@ -85,6 +87,8 @@ fn read_settings(data_dir: &Path, downloads: &Path) -> Settings {
         download_dir: default_download_dir(downloads)
             .to_string_lossy()
             .into_owned(),
+        cookies_browser: CookiesBrowser::default(),
+        cookies_updated_at: None,
     }
 }
 
@@ -145,6 +149,7 @@ mod tests {
                     video_id: "aaa".into(),
                     title: "A".into(),
                     thumbnail: None,
+                    size_bytes: None,
                     selection: Selection::Preset {
                         preset: Preset::Audio320,
                         save_thumbnail: true,
@@ -156,6 +161,7 @@ mod tests {
                     video_id: "bbb".into(),
                     title: "B".into(),
                     thumbnail: None,
+                    size_bytes: None,
                     selection: Selection::Preset {
                         preset: Preset::Video720,
                         save_thumbnail: false,

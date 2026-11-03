@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ClipboardPasteIcon, DownloadIcon, EyeIcon, Link2Icon, LinkIcon, ListVideoIcon, PlayIcon, SquareIcon, UserRoundIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -28,8 +29,8 @@ import { FormatPicker } from "@/components/downly/format-picker";
 import { PageShell } from "@/components/downly/page-shell";
 import { QueueList } from "@/components/downly/queue-list";
 import { BrandMark } from "@/components/downly/brand-mark";
-import { enqueue, expandPlaylist, probe, start, stop, updateQueueMetadata } from "@/lib/api";
-import { formatError, toastError } from "@/lib/errors";
+import { enqueue, expandPlaylist, probe, retryFailedSessionItem, start, stop, updateQueueMetadata } from "@/lib/api";
+import { classifyCookieError, formatError, hasCookieWarning, toastError, type CookieErrorKind } from "@/lib/errors";
 import {
 	formatCount,
 	formatDuration,
@@ -55,6 +56,9 @@ type Props = {
 	update: AppUpdate | null;
 };
 
+type CookiePromptRequest = { kind: CookieErrorKind | "metadata"; resolve: (retry: boolean) => void };
+const cookiePromptDismissed = new Error("cookie prompt dismissed");
+
 
 export function QueuePage({ snapshot, update }: Props) {
 	const { t } = useTranslation();
@@ -64,7 +68,7 @@ export function QueuePage({ snapshot, update }: Props) {
 	const [busy, setBusy] = useState(false);
 	const [probing, setProbing] = useState(false);
 	const [probeRevision, setProbeRevision] = useState(0);
-	const [metadataStatus, setMetadataStatus] = useState<{ kind: "loading" | "retrying" | "failed"; message: string } | null>(null);
+	const [metadataStatus, setMetadataStatus] = useState<{ kind: "loading" | "retrying" | "failed" } | null>(null);
 	const [video, setVideo] = useState<Extract<ProbeOutcome, { kind: "video" }> | null>(null);
 	const [container, setContainer] = useState<ContainerKind>("mp4");
 	const [qualityId, setQualityId] = useState<string | null>(null);
@@ -76,6 +80,9 @@ export function QueuePage({ snapshot, update }: Props) {
 		hasVideo: boolean;
 	} | null>(null);
 	const [updateAsk, setUpdateAsk] = useState(false);
+	const [cookiePrompt, setCookiePrompt] = useState<CookiePromptRequest | null>(null);
+	const activeCookiePrompt = useRef<CookiePromptRequest | null>(null);
+	const queuedCookiePrompts = useRef<CookiePromptRequest[]>([]);
 	const seenFailed = useRef(new Set<string>());
 	const failedSeeded = useRef(false);
 	const metadataJobs = useRef(new Map<string, Promise<ProbeOutcome>>());
@@ -99,7 +106,26 @@ export function QueuePage({ snapshot, update }: Props) {
 		return [];
 	}, [video, container, lines.length, playlist, best]);
 	const selected = options.find((option) => option.id === qualityId) ?? options[0] ?? null;
-	const probeWithRetries = useCallback((url: string, reportStatus = true) => {
+	const askCookiePrompt = useCallback((kind: CookieErrorKind | "metadata") => new Promise<boolean>((resolve) => {
+		const request = { kind, resolve };
+		if (activeCookiePrompt.current) {
+			queuedCookiePrompts.current.push(request);
+			return;
+		}
+		activeCookiePrompt.current = request;
+		setCookiePrompt(request);
+	}), []);
+	const settleCookiePrompt = useCallback((retry: boolean) => {
+		const current = activeCookiePrompt.current;
+		if (!current) {
+			return;
+		}
+		current.resolve(retry);
+		const next = queuedCookiePrompts.current.shift() ?? null;
+		activeCookiePrompt.current = next;
+		setCookiePrompt(next);
+	}, []);
+	const probeWithRetries = useCallback((url: string, reportStatus = true, allowCookiePrompt = reportStatus) => {
 		const existing = metadataJobs.current.get(url);
 		if (existing) {
 			return existing;
@@ -109,20 +135,32 @@ export function QueuePage({ snapshot, update }: Props) {
 				try {
 					return await probe(url);
 				} catch (err) {
+					if (err === cookiePromptDismissed) {
+						throw err;
+					}
 					if (attempt === 3) {
+						if (allowCookiePrompt && hasCookieWarning(err)) {
+							if (reportStatus && metadataTarget.current === url) {
+								setMetadataStatus(null);
+							}
+							await askCookiePrompt("metadata");
+							throw cookiePromptDismissed;
+						}
 						if (reportStatus && metadataTarget.current === url) {
-							setMetadataStatus({
-								kind: "failed",
-								message: t("queue.metadataFailed", { error: formatError(err, t("queue.errorFailed")) }),
+							setMetadataStatus({ kind: "failed" });
+							toast.add({
+								title: t("queue.metadataFailed", { error: formatError(err, t("queue.errorFailed")) }),
+								type: "error",
 							});
 						}
 						throw err;
 					}
 					const seconds = attempt;
 					if (reportStatus && metadataTarget.current === url) {
-						setMetadataStatus({
-							kind: "retrying",
-							message: t("queue.metadataRetrying", { attempt: attempt + 1, total: 3, seconds }),
+						setMetadataStatus({ kind: "retrying" });
+						toast.add({
+							title: t("queue.metadataRetrying", { attempt: attempt + 1, total: 3, seconds }),
+							type: "info",
 						});
 					}
 					await new Promise((resolve) => window.setTimeout(resolve, seconds * 1000));
@@ -147,7 +185,7 @@ export function QueuePage({ snapshot, update }: Props) {
 		);
 		metadataJobs.current.set(url, tracked);
 		return tracked;
-	}, [t]);
+	}, [askCookiePrompt, t]);
 
 	useEffect(() => {
 		if (!failedSeeded.current) {
@@ -164,12 +202,24 @@ export function QueuePage({ snapshot, update }: Props) {
 				continue;
 			}
 			seenFailed.current.add(item.id);
+			const cookieError = classifyCookieError(item.error);
+			if (cookieError) {
+				void askCookiePrompt(cookieError).then((retry) => {
+					if (!retry || cookieError === "decryption") {
+						return;
+					}
+					void retryFailedSessionItem(item.id)
+						.then(() => start())
+						.catch((err) => toastError(err, t("queue.errorFailed")));
+				});
+				continue;
+			}
 			toast.add({
 				title: formatError(item.error, t("queue.errorFailed")),
 				type: "error",
 			});
 		}
-	}, [snapshot.session, t]);
+	}, [askCookiePrompt, snapshot.session, t]);
 
 	useEffect(() => {
 		if (mode !== "single" || lines.length !== 1 || !/^https?:\/\//i.test(lines[0] ?? "")) {
@@ -180,7 +230,7 @@ export function QueuePage({ snapshot, update }: Props) {
 		let cancelled = false;
 		const timer = window.setTimeout(() => {
 			setProbing(true);
-			setMetadataStatus({ kind: "loading", message: "" });
+			setMetadataStatus({ kind: "loading" });
 			void probeWithRetries(url)
 				.then((outcome) => {
 					if (cancelled) {
@@ -242,6 +292,22 @@ export function QueuePage({ snapshot, update }: Props) {
 		return targetMode === "single" && nextLines.length === 1 && /^https?:\/\//i.test(nextLines[0] ?? "");
 	}
 
+	async function runWithCookiePrompt<T>(operation: () => Promise<T>): Promise<T> {
+		try {
+			return await operation();
+		} catch (err) {
+			const cookieError = classifyCookieError(err);
+			if (!cookieError) {
+				throw err;
+			}
+			const retry = await askCookiePrompt(cookieError);
+			if (!retry || cookieError === "decryption") {
+				throw cookiePromptDismissed;
+			}
+			return operation();
+		}
+	}
+
 	function applyContainer(next: ContainerKind, formats?: Extract<ProbeOutcome, { kind: "video" }>) {
 		userChangedSelection.current = true;
 		setContainer(next);
@@ -267,7 +333,7 @@ export function QueuePage({ snapshot, update }: Props) {
 
 	async function onPaste() {
 		try {
-			const next = await navigator.clipboard.readText();
+			const next = await readText();
 			const trimmed = next.trim();
 			if (!trimmed) {
 				return;
@@ -295,7 +361,7 @@ export function QueuePage({ snapshot, update }: Props) {
 					return;
 				}
 				try {
-					const outcome = await probeWithRetries(item.url, false);
+					const outcome = await probeWithRetries(item.url, false, true);
 					if (outcome.kind === "video") {
 						await updateQueueMetadata(item.id, outcome.title, outcome.thumbnail);
 					}
@@ -325,6 +391,7 @@ export function QueuePage({ snapshot, update }: Props) {
 				title: singleVideo?.title ?? "",
 				thumbnail: singleVideo?.thumbnail ?? null,
 				selection: downloadSelection,
+				size_bytes: singleVideo ? selected?.sizeBytes ?? null : null,
 			})));
 			applyOutcomes(outcomes);
 			const hydration = outcomes.flatMap((outcome, index) =>
@@ -360,8 +427,8 @@ export function QueuePage({ snapshot, update }: Props) {
 		try {
 			setPlaylist(null);
 			metadataTarget.current = watch;
-			setMetadataStatus({ kind: "loading", message: "" });
-			const outcome = await probeWithRetries(watch);
+			setMetadataStatus({ kind: "loading" });
+			const outcome = await probeWithRetries(watch, false, true);
 			if (outcome.kind === "video") {
 				setText(watch);
 				setVideo(outcome);
@@ -373,7 +440,13 @@ export function QueuePage({ snapshot, update }: Props) {
 				toast.add({ title: t(`queue.reject.${outcome.reason}`), type: "error" });
 			}
 		} catch (err) {
-			toastError(err, t("queue.errorFailed"));
+			if (err === cookiePromptDismissed) {
+				return;
+			}
+			toast.add({
+				title: t("queue.metadataFailed", { error: formatError(err, t("queue.errorFailed")) }),
+				type: "error",
+			});
 		} finally {
 			metadataTarget.current = null;
 			setMetadataStatus(null);
@@ -387,7 +460,7 @@ export function QueuePage({ snapshot, update }: Props) {
 		}
 		setBusy(true);
 		try {
-			const summary = await expandPlaylist(playlist.url);
+			const summary = await runWithCookiePrompt(() => expandPlaylist(playlist.url));
 			const outcomes = await enqueue(
 				summary.entries.map((entry) => ({
 					url: entry.url,
@@ -395,12 +468,16 @@ export function QueuePage({ snapshot, update }: Props) {
 					title: entry.title ?? entry.url,
 					thumbnail: entry.thumbnail,
 					selection: { ...selected.selection, save_thumbnail: saveThumbnail },
+					size_bytes: null,
 				})),
 			);
 			applyOutcomes(outcomes);
 			setPlaylist(null);
 			setText("");
 		} catch (err) {
+			if (err === cookiePromptDismissed) {
+				return;
+			}
 			toastError(err, t("queue.errorFailed"));
 		} finally {
 			setBusy(false);
@@ -527,18 +604,6 @@ export function QueuePage({ snapshot, update }: Props) {
 							{t("queue.add")}
 						</Button>
 					</div>
-					{metadataStatus && metadataStatus.kind !== "loading" ? (
-						<Alert>
-							<AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-								<span role="status">{metadataStatus.message}</span>
-								{metadataStatus.kind === "failed" && mode === "single" && lines.length === 1 ? (
-									<Button type="button" variant="ghost" size="sm" onClick={retryMetadata}>
-										{t("queue.retryMetadata")}
-									</Button>
-								) : null}
-							</AlertDescription>
-						</Alert>
-					) : null}
 				</Field>
 				{showDetailsCard ? (
 					<Card>
@@ -614,6 +679,13 @@ export function QueuePage({ snapshot, update }: Props) {
 										/>
 										<FieldLabel htmlFor="save-thumbnail">{t("queue.saveThumbnail")}</FieldLabel>
 									</Field>
+									{metadataStatus?.kind === "failed" && mode === "single" && lines.length === 1 ? (
+										<div className="flex justify-end">
+											<Button type="button" variant="ghost" size="sm" onClick={retryMetadata}>
+												{t("queue.retryMetadata")}
+											</Button>
+										</div>
+									) : null}
 								</>
 							) : null}
 						</CardContent>
@@ -694,6 +766,28 @@ export function QueuePage({ snapshot, update }: Props) {
 					<AlertDialogFooter>
 						<AlertDialogCancel>{t("queue.updateCancel")}</AlertDialogCancel>
 						<AlertDialogAction onClick={() => void confirmUpdate()}>{t("queue.updateConfirm")}</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			<AlertDialog open={cookiePrompt != null} onOpenChange={(open) => {
+				if (!open) {
+					settleCookiePrompt(false);
+				}
+			}}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>{cookiePrompt ? t(`queue.cookie.${cookiePrompt.kind}.title`) : null}</AlertDialogTitle>
+						<AlertDialogDescription>{cookiePrompt ? t(`queue.cookie.${cookiePrompt.kind}.body`) : null}</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						{cookiePrompt?.kind === "decryption" || cookiePrompt?.kind === "metadata" ? (
+							<AlertDialogAction onClick={() => settleCookiePrompt(false)}>{t("queue.cookie.dismiss")}</AlertDialogAction>
+						) : (
+							<>
+								<AlertDialogCancel>{t("queue.cookie.dismiss")}</AlertDialogCancel>
+								<AlertDialogAction onClick={() => settleCookiePrompt(true)}>{cookiePrompt ? t(`queue.cookie.${cookiePrompt.kind}.action`) : null}</AlertDialogAction>
+							</>
+						)}
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>

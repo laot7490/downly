@@ -26,6 +26,28 @@
 		"multiple": "Multiple",
 		"metadataRetrying": "Metadata failed. Retrying in {{seconds}} seconds ({{attempt}}/{{total}}).",
 		"metadataFailed": "Could not fetch metadata: {{error}}",
+		"cookie": {
+			"dismiss": "Close",
+			"metadata": {
+				"title": "Cookie settings may be needed",
+				"body": "Video details could not be fetched after three attempts, and the error mentions cookies. In Settings under Browser cookies, choose Firefox or use Manual mode to add a Netscape cookies.txt file."
+			},
+			"database_locked": {
+				"title": "Browser cookie database is locked",
+				"body": "Close the browser completely, then retry. yt-dlp will try this request again using the selected browser cookies.",
+				"action": "I closed the browser, retry"
+			},
+			"decryption": {
+				"title": "Browser cookies cannot be decrypted",
+				"body": "The selected browser encrypts cookies in a way yt-dlp cannot read. Choose another signed-in browser in Settings.",
+				"action": "Close"
+			},
+			"authentication": {
+				"title": "Browser sign-in required",
+				"body": "Sign in to the required account in the selected browser, then retry this request.",
+				"action": "I signed in, retry"
+			}
+		},
 		"retryMetadata": "Try again",
 		"lookUp": "Get video info",
 		"clear": "Clear",
@@ -133,6 +155,24 @@
 		"browse": "Browse",
 		"theme": "Theme",
 		"folder": "Download folder",
+		"cookiesBrowser": "Browser cookies",
+		"cookiesBrowserInfo": "About browser cookies",
+		"cookiesBrowserTooltip": "Uses the signed-in Firefox session with yt-dlp's --cookies-from-browser firefox option to access membership or private content. Sign in to Firefox first.",
+		"cookiesBrowserFailed": "Could not save the browser cookie setting.",
+		"cookiesManualTitle": "Manual cookie file",
+		"cookiesManualBody": "Use the extension's “Export all cookies” option to export every cookie. The file must use the Netscape cookies.txt format. Choose the downloaded .txt file here; it will be stored locally on this device.",
+		"cookiesExtension": "Recommended extension: Get cookies.txt LOCALLY",
+		"cookiesChooseFile": "Choose TXT file",
+		"cookiesReplace": "Replace file",
+		"cookiesUpdated": "File added: {{date}}.",
+		"cookiesStaleTitle": "Refresh your cookies",
+		"cookiesStaleBody": "Your manual cookie file is over a week old. To keep your session current, use the extension's “Export all cookies” option and add a new cookies.txt file in Netscape format.",
+		"cookiesOpenSettings": "Open settings",
+		"cookiesBrowsers": {
+			"disabled": "Disabled",
+			"firefox": "Firefox",
+			"manual": "Manual (cookies.txt)"
+		},
 		"saveFolder": "Save folder",
 		"ytdlp": "yt-dlp",
 		"ytdlpUnknown": "yt-dlp not found",

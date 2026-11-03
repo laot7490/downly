@@ -57,7 +57,7 @@ export function FormatPicker({ container, containers, qualityId, options, onCont
 							onQuality(next);
 						}
 					}}>
-					<SelectTrigger className="w-full">
+					<SelectTrigger className="w-full sm:min-w-48">
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
