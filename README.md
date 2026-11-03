@@ -4,6 +4,8 @@ Windows desktop downloader for YouTube, X, Streamable, Twitch, Vimeo, TikTok, Re
 
 Built with Tauri 2, React, TypeScript, and shadcn/ui. Bundled tools are yt-dlp (Unlicense) and FFmpeg (GPL).
 
+![Downly download queue](downly.jpg)
+
 > [!NOTE]
 > The Windows installer is not code-signed. SmartScreen may warn on first open. Use More info → Run anyway.
 
