@@ -58,6 +58,13 @@ export default function App() {
 
 	const downloading = snapshot.queue.some((item) => item.status === "active") || snapshot.progress != null;
 	const hasUpdates = Boolean(offers?.app || offers?.ytdlp);
+	const requestClose = () => {
+		if (downloading) {
+			setAskClose(true);
+			return;
+		}
+		void getCurrentWindow().close();
+	};
 
 	useEffect(() => {
 		void Promise.all([checkAppUpdate().catch(() => null), checkYtdlpUpdate().catch(() => null)]).then(([app, ytdlp]) => {
@@ -92,7 +99,7 @@ export default function App() {
 	return (
 		<Toaster>
 			<div className="flex h-svh flex-col bg-background">
-				<TitleBar />
+				<TitleBar onClose={requestClose} />
 				<SidebarProvider className="min-h-0 flex-1" style={sidebarStyle}>
 					<Sidebar collapsible="none" className="border-r border-border">
 						<SidebarContent className="pt-2">
