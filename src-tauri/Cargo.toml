@@ -1,6 +1,6 @@
 [package]
 name = "downly"
-version = "0.1.1"
+version = "0.1.2"
 description = "YouTube video downloader"
 authors = ["Emir Genç"]
 edition = "2024"
