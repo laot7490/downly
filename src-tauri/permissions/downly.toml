@@ -1,0 +1,31 @@
+[[permission]]
+identifier = "downly-commands"
+description = "Downly download commands"
+commands.allow = [
+  "probe",
+  "expand_playlist",
+  "enqueue",
+  "update_queue_metadata",
+  "start",
+  "stop",
+  "remove",
+  "cancel_item",
+  "state",
+  "set_download_dir",
+  "open_path",
+  "reveal_path",
+  "retry_history",
+  "remove_history",
+  "archive_session",
+  "archive_session_all",
+  "retry_failed_session",
+  "archive_completed_session_all",
+  "delete_completed_session_item",
+  "clear_history",
+  "update_ytdlp",
+  "ytdlp_version",
+  "ytdlp_info",
+  "app_version",
+  "check_app_update",
+  "check_ytdlp_update",
+]
