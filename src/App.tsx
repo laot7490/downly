@@ -1,6 +1,8 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { CheckIcon, ClockIcon, DownloadIcon, RefreshCwIcon, SettingsIcon } from "lucide-react";
 import {
 	Sidebar,
@@ -29,8 +31,7 @@ import { HistoryPage } from "@/pages/history-page";
 import { QueuePage } from "@/pages/queue-page";
 import { SettingsPage } from "@/pages/settings-page";
 import { useDownly } from "@/hooks/use-downly";
-import { archiveSessionAll, checkAppUpdate, checkYtdlpUpdate, updateYtdlp } from "@/lib/api";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { archiveSessionAll, checkYtdlpUpdate, updateYtdlp } from "@/lib/api";
 import type { AppUpdate } from "@/lib/downly";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -51,9 +52,11 @@ export default function App() {
 	const { t } = useTranslation();
 	const { snapshot, ready } = useDownly();
 	const [page, setPage] = useState<PageId>("queue");
-	const [update, setUpdate] = useState<AppUpdate | null>(null);
-	const [offers, setOffers] = useState<{ app: AppUpdate | null; ytdlp: AppUpdate | null } | null>(null);
+	const [offers, setOffers] = useState<{ app: Update | null; ytdlp: AppUpdate | null } | null>(null);
 	const [updatesOpen, setUpdatesOpen] = useState(false);
+	const [appUpdateBusy, setAppUpdateBusy] = useState(false);
+	const [appUpdateStage, setAppUpdateStage] = useState<"downloading" | "installing" | null>(null);
+	const [appUpdateProgress, setAppUpdateProgress] = useState<number | null>(null);
 	const [askClose, setAskClose] = useState(false);
 	const [staleCookiesOpen, setStaleCookiesOpen] = useState(false);
 
@@ -68,16 +71,48 @@ export default function App() {
 	};
 
 	useEffect(() => {
-		void Promise.all([checkAppUpdate().catch(() => null), checkYtdlpUpdate().catch(() => null)]).then(([app, ytdlp]) => {
-			if (app?.newer) {
-				setUpdate(app);
-			}
-			setOffers({
-				app: app?.newer ? app : null,
+		void Promise.all([check().catch(() => null), checkYtdlpUpdate().catch(() => null)]).then(([app, ytdlp]) => {
+			const nextOffers = {
+				app,
 				ytdlp: ytdlp?.newer ? ytdlp : null,
-			});
+			};
+			setOffers(nextOffers);
+			if (nextOffers.app || nextOffers.ytdlp) {
+				setUpdatesOpen(true);
+			}
 		});
 	}, []);
+
+	async function installAppUpdate() {
+		const update = offers?.app;
+		if (!update) {
+			return;
+		}
+		setAppUpdateBusy(true);
+		setAppUpdateStage("downloading");
+		setAppUpdateProgress(null);
+		let downloaded = 0;
+		let contentLength: number | undefined;
+		try {
+			await update.downloadAndInstall((event) => {
+				if (event.event === "Started") {
+					contentLength = event.data.contentLength;
+				} else if (event.event === "Progress") {
+					downloaded += event.data.chunkLength;
+					if (contentLength) {
+						setAppUpdateProgress(Math.min(100, Math.round((downloaded / contentLength) * 100)));
+					}
+				} else if (event.event === "Finished") {
+					setAppUpdateStage("installing");
+				}
+			});
+			await relaunch();
+		} catch (err) {
+			toastError(err, t("settings.updateFailed"));
+			setAppUpdateBusy(false);
+			setAppUpdateStage(null);
+		}
+	}
 
 	useEffect(() => {
 		const updatedAt = snapshot.settings.cookies_updated_at;
@@ -155,7 +190,7 @@ export default function App() {
 						<ScrollArea className="h-full min-h-0">
 							<div className="flex flex-col gap-4 p-4 pt-6">
 								<div className={page === "queue" ? "contents" : "hidden"}>
-									<QueuePage snapshot={snapshot} update={update} />
+									<QueuePage snapshot={snapshot} />
 								</div>
 								{page === "history" ? <HistoryPage snapshot={snapshot} /> : null}
 								{page === "settings" ? <SettingsPage snapshot={snapshot} /> : null}
@@ -213,17 +248,23 @@ export default function App() {
 							{offers?.app ? (
 								<div className="flex items-center justify-between gap-3">
 									<p className="text-sm text-foreground">
-										{t("settings.updateFound", { version: offers.app.version })}
+										{appUpdateBusy
+											? appUpdateStage === "installing"
+												? t("settings.updateInstalling")
+												: appUpdateProgress == null
+													? t("settings.updateDownloading")
+													: t("settings.updateProgress", { percent: appUpdateProgress })
+										: t("settings.updateFound", { version: offers.app.version })}
 									</p>
 									<Button
 										type="button"
-										disabled={!offers.app.url}
-										onClick={() => {
-											if (offers.app?.url) {
-												void openUrl(offers.app.url);
-											}
-										}}>
-										{t("settings.updateApp")}
+										disabled={appUpdateBusy || downloading}
+										onClick={() => void installAppUpdate()}>
+										{downloading
+											? t("settings.updateWaitForDownloads")
+											: appUpdateBusy
+												? t("settings.updateInProgress")
+												: t("settings.updateApp")}
 									</Button>
 								</div>
 							) : null}

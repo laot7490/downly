@@ -270,14 +270,21 @@ impl Engine {
         });
     }
 
-    pub fn update_metadata(&mut self, id: &str, title: &str, thumbnail: Option<String>) -> bool {
+    pub fn update_metadata(
+        &mut self,
+        id: &str,
+        video_id: &str,
+        title: &str,
+        thumbnail: Option<String>,
+    ) -> bool {
         let mut changed = false;
         if let Some(item) = self.active.as_mut().filter(|item| item.id == id) {
             changed |= fill_metadata(
+                &mut item.video_id,
                 &mut item.title,
                 &mut item.thumbnail,
-                &item.video_id,
                 &item.url,
+                video_id,
                 title,
                 &thumbnail,
             );
@@ -285,10 +292,11 @@ impl Engine {
         for item in &mut self.pending {
             if item.id == id {
                 changed |= fill_metadata(
+                    &mut item.video_id,
                     &mut item.title,
                     &mut item.thumbnail,
-                    &item.video_id,
                     &item.url,
+                    video_id,
                     title,
                     &thumbnail,
                 );
@@ -297,10 +305,11 @@ impl Engine {
         for item in self.session.iter_mut().chain(self.history.iter_mut()) {
             if item.id == id {
                 changed |= fill_metadata(
+                    &mut item.video_id,
                     &mut item.title,
                     &mut item.thumbnail,
-                    &item.video_id,
                     &item.url,
+                    video_id,
                     title,
                     &thumbnail,
                 );
@@ -349,7 +358,7 @@ impl Engine {
             .collect::<Vec<_>>();
         let mut retried = 0;
         for entry in failed {
-            if self.contains_video(&entry.video_id) {
+            if self.contains_identity(&entry.video_id, &entry.url) {
                 continue;
             }
             self.pending.push(Item {
@@ -373,7 +382,7 @@ impl Engine {
             .find(|item| item.id == id && item.status == HistoryStatus::Failed)
             .cloned()
             .ok_or_else(|| "failed download not found".to_string())?;
-        if self.contains_video(&entry.video_id) {
+        if self.contains_identity(&entry.video_id, &entry.url) {
             return Ok(false);
         }
         self.pending.push(Item {
@@ -395,7 +404,7 @@ impl Engine {
             .position(|item| item.id == id && item.status == HistoryStatus::Cancelled)
             .ok_or_else(|| "cancelled download not found".to_string())?;
         let entry = self.session[index].clone();
-        if self.contains_video(&entry.video_id) {
+        if self.contains_identity(&entry.video_id, &entry.url) {
             return Ok(false);
         }
         self.pending.push(Item {
@@ -475,7 +484,7 @@ impl Engine {
         let Some(entry) = self.history.iter().find(|item| item.id == id).cloned() else {
             return Err("not found".into());
         };
-        if self.contains_video(&entry.video_id) {
+        if self.contains_identity(&entry.video_id, &entry.url) {
             return Err("already queued".into());
         }
         self.pending.push(Item {
@@ -538,13 +547,7 @@ impl Engine {
         } else {
             item.video_id.trim().to_string()
         };
-        if video_id.is_empty() {
-            return EnqueueOutcome::Rejected {
-                url,
-                reason: RejectReason::Unsupported,
-            };
-        }
-        if self.contains_video(&video_id) {
+        if self.contains_identity(&video_id, &url) {
             return EnqueueOutcome::Skipped {
                 video_id,
                 reason: SkipReason::AlreadyQueued,
@@ -552,7 +555,11 @@ impl Engine {
         }
         let id = new_id();
         let title = if item.title.trim().is_empty() {
-            video_id.clone()
+            if video_id.is_empty() {
+                url.clone()
+            } else {
+                video_id.clone()
+            }
         } else {
             item.title.trim().to_string()
         };
@@ -568,27 +575,34 @@ impl Engine {
         EnqueueOutcome::Added { id, video_id }
     }
 
-    fn contains_video(&self, video_id: &str) -> bool {
-        self.pending.iter().any(|item| item.video_id == video_id)
-            || self
-                .active
-                .as_ref()
-                .is_some_and(|item| item.video_id == video_id)
+    fn contains_identity(&self, video_id: &str, url: &str) -> bool {
+        self.pending
+            .iter()
+            .any(|item| item.url == url || (!video_id.is_empty() && item.video_id == video_id))
+            || self.active.as_ref().is_some_and(|item| {
+                item.url == url || (!video_id.is_empty() && item.video_id == video_id)
+            })
     }
 }
 
 fn fill_metadata(
+    current_video_id: &mut String,
     current_title: &mut String,
     current_thumbnail: &mut Option<String>,
-    video_id: &str,
     url: &str,
+    video_id: &str,
     title: &str,
     thumbnail: &Option<String>,
 ) -> bool {
     let mut changed = false;
+    let video_id = video_id.trim();
+    if current_video_id.is_empty() && !video_id.is_empty() {
+        *current_video_id = video_id.to_string();
+        changed = true;
+    }
     let title = title.trim();
     if !title.is_empty()
-        && (current_title.is_empty() || current_title == video_id || current_title == url)
+        && (current_title.is_empty() || current_title == current_video_id || current_title == url)
     {
         *current_title = title.to_string();
         changed = true;
@@ -944,6 +958,7 @@ mod tests {
         let pending_id = engine.pending[0].id.clone();
         assert!(engine.update_metadata(
             &pending_id,
+            "aaa",
             "Resolved title",
             Some("https://img.test/thumb.jpg".into())
         ));
@@ -958,6 +973,7 @@ mod tests {
         engine.take_next().unwrap();
         assert!(engine.update_metadata(
             &active_id,
+            "bbb",
             "Active title",
             Some("https://img.test/active.jpg".into())
         ));
@@ -968,6 +984,7 @@ mod tests {
         engine.finish_active(HistoryStatus::Success, None, None);
         assert!(engine.update_metadata(
             &recent_id,
+            "ccc",
             "Recent title",
             Some("https://img.test/recent.jpg".into())
         ));

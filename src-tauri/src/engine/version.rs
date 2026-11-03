@@ -1,7 +1,5 @@
 use std::cmp::Ordering;
 
-pub const APP_UPDATE_REPO: Option<&str> = Some("laot7490/downly");
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AppUpdate {
     pub version: String,
@@ -75,7 +73,7 @@ fn normalize_version(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{APP_UPDATE_REPO, parse_release, version_is_newer};
+    use super::{parse_release, version_is_newer};
 
     #[test]
     fn compares_dotted_versions() {
@@ -91,7 +89,6 @@ mod tests {
 
     #[test]
     fn parses_github_release_without_downloading() {
-        assert_eq!(APP_UPDATE_REPO, Some("laot7490/downly"));
         let body = r#"{"tag_name":"v0.2.0","html_url":"https://example.com/rel"}"#;
         let update = parse_release(body, "0.1.0").unwrap();
         assert!(update.newer);

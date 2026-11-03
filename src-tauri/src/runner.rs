@@ -97,12 +97,13 @@ pub fn enqueue(app: &AppHandle, items: Vec<EnqueueItem>) -> Result<Vec<EnqueueOu
 pub fn update_queue_metadata(
     app: &AppHandle,
     id: String,
+    video_id: String,
     title: String,
     thumbnail: Option<String>,
 ) -> Result<(), String> {
     let downly = app.state::<Downly>();
     let mut engine = lock(&downly.engine);
-    if !engine.update_metadata(&id, &title, thumbnail) {
+    if !engine.update_metadata(&id, &video_id, &title, thumbnail) {
         return Ok(());
     }
     store::save(&downly.data_dir, &engine)?;

@@ -25,7 +25,8 @@ pub fn load(data_dir: &Path, downloads: &Path) -> Engine {
         pending.push(active);
     }
     pending.extend(queue.pending);
-    let mut engine = Engine::new(settings.download_dir);
+    let mut engine = Engine::new(settings.download_dir.clone());
+    engine.settings = settings;
     engine.pending = pending;
     engine.history = history;
     engine.session = queue.session;
@@ -142,6 +143,7 @@ mod tests {
         fs::create_dir_all(&downloads).unwrap();
         fs::create_dir_all(&files).unwrap();
         let mut engine = Engine::new(files.to_string_lossy().to_string());
+        engine.settings.cookies_browser = crate::engine::queue::CookiesBrowser::Firefox;
         engine.enqueue(
             vec![
                 EnqueueItem {
@@ -192,6 +194,7 @@ mod tests {
         assert_eq!(again.history.len(), 1);
         assert!(again.session.is_empty());
         assert_eq!(loaded.settings.download_dir, engine.settings.download_dir);
+        assert_eq!(loaded.settings.cookies_browser, engine.settings.cookies_browser);
         let fresh = load(&root.join("missing"), &downloads);
         assert!(
             fresh

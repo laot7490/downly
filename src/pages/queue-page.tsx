@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { ClipboardPasteIcon, DownloadIcon, EyeIcon, Link2Icon, LinkIcon, ListVideoIcon, PlayIcon, SquareIcon, UserRoundIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,6 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
@@ -37,7 +35,6 @@ import {
 	isYouTube,
 	linesOf,
 	watchUrlWithoutList,
-	type AppUpdate,
 	type EnqueueOutcome,
 	type ProbeOutcome,
 	type Snapshot,
@@ -53,14 +50,13 @@ import {
 
 type Props = {
 	snapshot: Snapshot;
-	update: AppUpdate | null;
 };
 
 type CookiePromptRequest = { kind: CookieErrorKind | "metadata"; resolve: (retry: boolean) => void };
 const cookiePromptDismissed = new Error("cookie prompt dismissed");
 
 
-export function QueuePage({ snapshot, update }: Props) {
+export function QueuePage({ snapshot }: Props) {
 	const { t } = useTranslation();
 	const best = t("queue.best");
 	const [text, setText] = useState("");
@@ -79,7 +75,6 @@ export function QueuePage({ snapshot, update }: Props) {
 		count: number;
 		hasVideo: boolean;
 	} | null>(null);
-	const [updateAsk, setUpdateAsk] = useState(false);
 	const [cookiePrompt, setCookiePrompt] = useState<CookiePromptRequest | null>(null);
 	const activeCookiePrompt = useRef<CookiePromptRequest | null>(null);
 	const queuedCookiePrompts = useRef<CookiePromptRequest[]>([]);
@@ -363,7 +358,7 @@ export function QueuePage({ snapshot, update }: Props) {
 				try {
 					const outcome = await probeWithRetries(item.url, false, true);
 					if (outcome.kind === "video") {
-						await updateQueueMetadata(item.id, outcome.title, outcome.thumbnail);
+						await updateQueueMetadata(item.id, outcome.id, outcome.title, outcome.thumbnail);
 					}
 				} catch {
 					continue;
@@ -500,27 +495,6 @@ export function QueuePage({ snapshot, update }: Props) {
 		}
 	}
 
-	async function openUpdate() {
-		if (!update?.url) {
-			return;
-		}
-		if (downloading) {
-			setUpdateAsk(true);
-			return;
-		}
-		await openUrl(update.url);
-	}
-
-	async function confirmUpdate() {
-		setUpdateAsk(false);
-		if (downloading) {
-			await onStop();
-		}
-		if (update?.url) {
-			await openUrl(update.url);
-		}
-	}
-
 	const linksValid = lines.every((line) => /^https?:\/\//i.test(line));
 	const showDetailsCard = (multi && lines.length > 0) || probing || video != null || playlist != null || metadataStatus?.kind === "failed";
 	const showFormatPicker = multi || video != null || metadataStatus?.kind === "failed";
@@ -533,17 +507,6 @@ export function QueuePage({ snapshot, update }: Props) {
 				<h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("queue.headline")}</h1>
 				<p className="max-w-prose text-sm text-muted-foreground">{t("queue.sub")}</p>
 			</div>
-			{update?.newer ? (
-				<Alert>
-					<AlertTitle>{t("queue.updateReady")}</AlertTitle>
-					<AlertDescription className="flex flex-col gap-2">
-						<span>{update.version}</span>
-						<Button type="button" size="sm" onClick={() => void openUpdate()}>
-							{t("queue.updateOpen")}
-						</Button>
-					</AlertDescription>
-				</Alert>
-			) : null}
 			<FieldGroup>
 				<Field>
 					<ToggleGroup
@@ -757,18 +720,6 @@ export function QueuePage({ snapshot, update }: Props) {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-			<AlertDialog open={updateAsk} onOpenChange={setUpdateAsk}>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>{t("queue.updateReady")}</AlertDialogTitle>
-						<AlertDialogDescription>{t("queue.updateWhileDownloading")}</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>{t("queue.updateCancel")}</AlertDialogCancel>
-						<AlertDialogAction onClick={() => void confirmUpdate()}>{t("queue.updateConfirm")}</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
 			<AlertDialog open={cookiePrompt != null} onOpenChange={(open) => {
 				if (!open) {
 					settleCookiePrompt(false);

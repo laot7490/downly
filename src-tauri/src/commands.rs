@@ -2,7 +2,7 @@ use crate::engine::bins::ytdlp_filename;
 use crate::engine::media::{PlaylistSummary, ProbeOutcome};
 use crate::engine::queue::{CookiesBrowser, EnqueueItem, EnqueueOutcome, Snapshot};
 use crate::engine::verify::{YTDLP_EXE_URL, YTDLP_SUMS_URL, install_verified};
-use crate::engine::version::{APP_UPDATE_REPO, AppUpdate, parse_release};
+use crate::engine::version::{AppUpdate, parse_release};
 use crate::net;
 use crate::runner;
 use crate::state::Downly;
@@ -34,10 +34,11 @@ pub fn enqueue(app: AppHandle, items: Vec<EnqueueItem>) -> Result<Vec<EnqueueOut
 pub fn update_queue_metadata(
     app: AppHandle,
     id: String,
+    video_id: String,
     title: String,
     thumbnail: Option<String>,
 ) -> Result<(), String> {
-    runner::update_queue_metadata(&app, id, title, thumbnail)
+    runner::update_queue_metadata(&app, id, video_id, title, thumbnail)
 }
 
 #[tauri::command]
@@ -205,15 +206,4 @@ pub async fn check_ytdlp_update(app: AppHandle) -> Result<Option<AppUpdate>, Str
 #[tauri::command]
 pub fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
-}
-
-#[tauri::command]
-pub async fn check_app_update() -> Option<AppUpdate> {
-    let repo = APP_UPDATE_REPO?;
-    if repo.is_empty() {
-        return None;
-    }
-    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let text = net::get_text(&url).await.ok()?;
-    parse_release(&text, env!("CARGO_PKG_VERSION"))
 }

@@ -14,6 +14,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let data_dir = app.path().resolve("Downly", BaseDirectory::LocalData)?;
             std::fs::create_dir_all(&data_dir)?;
@@ -61,7 +63,6 @@ pub fn run() {
             commands::ytdlp_info,
             commands::check_ytdlp_update,
             commands::app_version,
-            commands::check_app_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

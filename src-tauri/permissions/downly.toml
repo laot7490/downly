@@ -31,6 +31,5 @@ commands.allow = [
   "ytdlp_version",
   "ytdlp_info",
   "app_version",
-  "check_app_update",
   "check_ytdlp_update",
 ]

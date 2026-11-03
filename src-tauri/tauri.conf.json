@@ -2,7 +2,7 @@
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "Downly",
 	"mainBinaryName": "Downly",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"identifier": "com.downly",
 	"build": {
 		"beforeDevCommand": "pnpm dev",
@@ -28,6 +28,7 @@
 	},
 	"bundle": {
 		"active": true,
+		"createUpdaterArtifacts": true,
 		"targets": ["nsis"],
 		"resources": {
 			"resources/": "resources/"
@@ -37,6 +38,12 @@
 			"nsis": {
 				"installMode": "currentUser"
 			}
+		}
+	},
+	"plugins": {
+		"updater": {
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc3ODc2QkVEMUM3ODFFMTMKUldRVEhuZ2M3V3VIZDN2MkN2cHg3RDFDRmRmK0U2d2J2R25qa0wK",
+			"endpoints": ["https://github.com/laot7490/downly/releases/latest/download/latest.json"]
 		}
 	}
 }

@@ -18,8 +18,8 @@ export function enqueue(items: EnqueueItem[]) {
 	return invoke<EnqueueOutcome[]>("enqueue", { items });
 }
 
-export function updateQueueMetadata(id: string, title: string, thumbnail: string | null) {
-	return invoke<void>("update_queue_metadata", { id, title, thumbnail });
+export function updateQueueMetadata(id: string, videoId: string, title: string, thumbnail: string | null) {
+	return invoke<void>("update_queue_metadata", { id, videoId, title, thumbnail });
 }
 
 export function start() {
@@ -125,10 +125,6 @@ export function appVersion() {
 
 export function checkYtdlpUpdate() {
 	return invoke<AppUpdate | null>("check_ytdlp_update");
-}
-
-export function checkAppUpdate() {
-	return invoke<AppUpdate | null>("check_app_update");
 }
 
 export function onState(handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> {

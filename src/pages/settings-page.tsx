@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { CheckIcon, CircleHelpIcon } from "lucide-react";
@@ -16,7 +18,7 @@ import { toast } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chooseLanguage, type Language } from "@/i18n";
 import { useTheme, type ThemeChoice } from "@/theme";
-import { appVersion, checkAppUpdate, checkYtdlpUpdate, importCookiesFile, setCookiesBrowser, updateYtdlp, ytdlpInfo } from "@/lib/api";
+import { appVersion, checkYtdlpUpdate, importCookiesFile, setCookiesBrowser, updateYtdlp, ytdlpInfo } from "@/lib/api";
 import { toastError } from "@/lib/errors";
 import type { AppUpdate, CookiesBrowser, Snapshot } from "@/lib/downly";
 
@@ -33,10 +35,12 @@ export function SettingsPage({ snapshot }: Props) {
 	const language: Language = i18n.resolvedLanguage === "tr" ? "tr" : "en";
 	const [version, setVersion] = useState("");
 	const [ytdlp, setYtdlp] = useState("");
-	const [appUpdate, setAppUpdate] = useState<AppUpdate | null>(null);
+	const [appUpdate, setAppUpdate] = useState<Update | null>(null);
 	const [ytdlpUpdate, setYtdlpUpdate] = useState<AppUpdate | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [appBusy, setAppBusy] = useState(false);
+	const [appUpdateInstalling, setAppUpdateInstalling] = useState(false);
+	const [appUpdateProgress, setAppUpdateProgress] = useState<number | null>(null);
 	const [ytdlpBusy, setYtdlpBusy] = useState(false);
 	const [cookiesBusy, setCookiesBusy] = useState(false);
 	const [cookieDialogOpen, setCookieDialogOpen] = useState(false);
@@ -47,7 +51,7 @@ export function SettingsPage({ snapshot }: Props) {
 		void Promise.all([
 			appVersion().catch(() => ""),
 			ytdlpInfo().catch(() => null),
-			checkAppUpdate().catch(() => null),
+			check().catch(() => null),
 			checkYtdlpUpdate().catch(() => null),
 		]).then(([appVer, info, app, ytdlpCheck]) => {
 			if (cancelled) {
@@ -64,8 +68,9 @@ export function SettingsPage({ snapshot }: Props) {
 		};
 	}, []);
 
-	const appNewer = Boolean(appUpdate?.newer);
+	const appNewer = Boolean(appUpdate);
 	const ytdlpNewer = Boolean(ytdlpUpdate?.newer);
+	const downloadRunning = snapshot.queue.some((item) => item.status === "active") || snapshot.progress != null;
 	const cookiesBrowsers = ["disabled", "firefox", "manual"] as const;
 	const cookiesBrowserItems = cookiesBrowsers.map((browser) => ({
 		value: browser,
@@ -89,6 +94,36 @@ export function SettingsPage({ snapshot }: Props) {
 			toastError(err, t("settings.cookiesBrowserFailed"));
 		} finally {
 			setCookiesBusy(false);
+		}
+	}
+
+	async function installAppUpdate() {
+		if (!appUpdate) {
+			return;
+		}
+		setAppBusy(true);
+		setAppUpdateInstalling(false);
+		setAppUpdateProgress(null);
+		let downloaded = 0;
+		let contentLength: number | undefined;
+		try {
+			await appUpdate.downloadAndInstall((event) => {
+				if (event.event === "Started") {
+					contentLength = event.data.contentLength;
+				} else if (event.event === "Progress") {
+					downloaded += event.data.chunkLength;
+					if (contentLength) {
+						setAppUpdateProgress(Math.min(100, Math.round((downloaded / contentLength) * 100)));
+					}
+				} else if (event.event === "Finished") {
+					setAppUpdateInstalling(true);
+				}
+			});
+			await relaunch();
+		} catch (err) {
+			toastError(err, t("settings.updateFailed"));
+			setAppBusy(false);
+			setAppUpdateInstalling(false);
 		}
 	}
 
@@ -207,24 +242,24 @@ export function SettingsPage({ snapshot }: Props) {
 						<Button
 							type="button"
 							variant="outline"
-							disabled={loading || appBusy || !appNewer || !appUpdate?.url}
-							onClick={() => {
-								if (!appUpdate?.url) {
-									return;
-								}
-								setAppBusy(true);
-								void openUrl(appUpdate.url)
-									.catch((err) => {
-										toastError(err, t("settings.updateFailed"));
-									})
-									.finally(() => setAppBusy(false));
-							}}>
+							disabled={loading || appBusy || !appNewer || downloadRunning}
+							onClick={() => void installAppUpdate()}>
 							{loading || appBusy ? (
 								<Spinner data-icon="inline-start" />
 							) : appNewer ? null : (
 								<CheckIcon data-icon="inline-start" />
 							)}
-							{appNewer ? t("settings.updateAction") : t("settings.upToDate")}
+							{downloadRunning
+								? t("settings.updateWaitForDownloads")
+								: appBusy
+								? appUpdateInstalling
+									? t("settings.updateInstalling")
+									: appUpdateProgress == null
+										? t("settings.updateDownloading")
+										: t("settings.updateProgress", { percent: appUpdateProgress })
+								: appNewer
+									? t("settings.updateAction")
+									: t("settings.upToDate")}
 						</Button>
 					</CardFooter>
 				</Card>

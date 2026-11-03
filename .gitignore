@@ -13,6 +13,8 @@ dist-ssr
 *.local
 src-tauri/target
 src-tauri/resources/*.exe
+src-tauri/updater.key
+src-tauri/updater.key.pub
 src-tauri/gen
 
 # Editor directories and files
