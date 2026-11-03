@@ -23,6 +23,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { BrandMark } from "@/components/downly/brand-mark";
+import { DownloadBadges } from "@/components/downly/download-badges";
 import { MediaRow } from "@/components/downly/media-row";
 import {
 	archiveCompletedSessionAll,
@@ -35,8 +36,6 @@ import {
 	revealPath,
 } from "@/lib/api";
 import { toastError } from "@/lib/errors";
-import { formatBytes } from "@/lib/downly";
-import { describeSelection } from "@/lib/quality-options";
 import type { HistoryItem, QueueEntry, Snapshot } from "@/lib/downly";
 
 type FilterId = "all" | "pending" | "active" | "completed" | "failed" | "cancelled";
@@ -154,8 +153,7 @@ function QueueRow({ item, snapshot, best }: { item: QueueEntry; snapshot: Snapsh
 				<div className="flex min-w-0 flex-col gap-1.5">
 					<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 						<Badge variant={item.status === "active" ? "default" : "outline"}>{t(`queue.${item.status}`)}</Badge>
-						<Badge variant="outline">{describeSelection(item.selection, best)}</Badge>
-						{item.size_bytes != null ? <Badge variant="secondary">{formatBytes(item.size_bytes)}</Badge> : null}
+						<DownloadBadges selection={item.selection} best={best} durationSeconds={item.duration_seconds} sizeBytes={item.size_bytes} estimatedSize />
 					</div>
 					{progress ? (
 						<div className="flex flex-col gap-1">
@@ -200,8 +198,7 @@ function SessionRow({ item, best }: { item: HistoryItem; best: string }) {
 				<div className="flex min-w-0 flex-col gap-1">
 					<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 						<Badge variant={variant}>{label}</Badge>
-						<Badge variant="outline">{describeSelection(item.selection, best)}</Badge>
-						{item.status === "success" && item.size_bytes ? <Badge variant="secondary">{formatBytes(item.size_bytes)}</Badge> : null}
+						<DownloadBadges selection={item.selection} best={best} durationSeconds={item.duration_seconds} sizeBytes={item.status === "success" ? item.size_bytes : null} />
 					</div>
 					{item.error ? <p className="text-sm text-destructive">{item.error}</p> : null}
 				</div>

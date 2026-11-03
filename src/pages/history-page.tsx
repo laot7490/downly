@@ -25,10 +25,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { BrandMark } from "@/components/downly/brand-mark";
 import { MediaRow } from "@/components/downly/media-row";
+import { DownloadBadges } from "@/components/downly/download-badges";
 import { PageShell } from "@/components/downly/page-shell";
 import { clearHistory, removeHistory, revealPath } from "@/lib/api";
-import { formatBytes } from "@/lib/downly";
-import { describeSelection } from "@/lib/quality-options";
 import type { HistoryItem, Snapshot } from "@/lib/downly";
 
 type Props = {
@@ -109,9 +108,8 @@ export function HistoryPage({ snapshot }: Props) {
 												title={item.title}
 												meta={
 													<div className="flex min-w-0 flex-col gap-1">
-														<div className="flex min-w-0 flex-wrap items-center gap-1.5">
-															<Badge variant="outline">{describeSelection(item.selection, best)}</Badge>
-															{item.size_bytes ? <Badge variant="secondary">{formatBytes(item.size_bytes)}</Badge> : null}
+									<div className="flex min-w-0 flex-wrap items-center gap-1.5">
+										<DownloadBadges selection={item.selection} best={best} durationSeconds={item.duration_seconds} sizeBytes={item.size_bytes} />
 														</div>
 													</div>
 												}

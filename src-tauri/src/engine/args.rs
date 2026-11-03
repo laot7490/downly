@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::engine::filename::OUTPUT_TEMPLATE;
-use crate::engine::format::{Selection, format_args, valid_format_id};
+use crate::engine::format::{Selection, clip_args, format_args, valid_format_id};
 
 pub fn probe_video_args(
     url: &str,
@@ -57,6 +57,8 @@ pub fn download_args(
     let mut args = vec![
         "--newline".into(),
         "--progress".into(),
+        "--concurrent-fragments".into(),
+        "4".into(),
         "--windows-filenames".into(),
         "--no-mtime".into(),
         "--no-playlist".into(),
@@ -70,6 +72,7 @@ pub fn download_args(
         "after_move:%(filepath)s".into(),
     ];
     args.extend(format_args(selection));
+    args.extend(clip_args(selection)?);
     args.push("--".into());
     args.push(url.into());
     Ok(with_options(
@@ -126,6 +129,7 @@ mod tests {
             preset: Preset::Video1080,
             save_thumbnail: true,
             label: String::new(),
+            clip: None,
         };
         let args = download_args(
             &selection,

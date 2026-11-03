@@ -47,6 +47,8 @@ pub enum Selection {
         acodec: String,
         #[serde(default)]
         label: String,
+        #[serde(default)]
+        clip: Option<ClipRange>,
     },
     Preset {
         preset: Preset,
@@ -54,7 +56,15 @@ pub enum Selection {
         save_thumbnail: bool,
         #[serde(default)]
         label: String,
+        #[serde(default)]
+        clip: Option<ClipRange>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ClipRange {
+    pub start_seconds: u64,
+    pub end_seconds: u64,
 }
 
 impl Selection {
@@ -108,6 +118,25 @@ pub fn format_args(selection: &Selection) -> Vec<String> {
             args
         }
     }
+}
+
+pub fn clip_args(selection: &Selection) -> Result<Vec<String>, String> {
+    let clip = match selection {
+        Selection::Preset { clip, .. } | Selection::Format { clip, .. } => clip,
+    };
+    let Some(clip) = clip else {
+        return Ok(Vec::new());
+    };
+    if clip.end_seconds <= clip.start_seconds {
+        return Err("invalid clip range".into());
+    }
+    if matches!(selection, Selection::Format { kind: FormatKind::Storyboard, .. }) {
+        return Err("clipping is not supported for storyboard formats".into());
+    }
+    Ok(vec![
+        "--download-sections".into(),
+        format!("*{}-{}", clip.start_seconds, clip.end_seconds),
+    ])
 }
 
 pub fn valid_format_id(id: &str) -> bool {
@@ -212,6 +241,7 @@ mod tests {
             vcodec: vcodec.into(),
             acodec: acodec.into(),
             label: String::new(),
+            clip: None,
         }
     }
 
@@ -327,6 +357,7 @@ mod tests {
                 preset,
                 save_thumbnail: false,
                 label: String::new(),
+                clip: None,
             });
             assert!(has_pair(&args, "-f", filter), "{args:?}");
             assert!(!args.iter().any(|arg| arg == "-x"));
@@ -344,6 +375,7 @@ mod tests {
                 preset,
                 save_thumbnail: true,
                 label: String::new(),
+                clip: None,
             });
             assert!(has_pair(&args, "-f", "ba/b"));
             assert!(args.iter().any(|arg| arg == "-x"));

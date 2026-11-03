@@ -81,13 +81,17 @@ export type Selection =
 			vcodec: string;
 			acodec: string;
 			label: string;
+			clip?: ClipRange | null;
 	  }
 	| {
 			type: "preset";
 			preset: Preset;
 			save_thumbnail: boolean;
 			label: string;
+			clip?: ClipRange | null;
 	  };
+
+export type ClipRange = { start_seconds: number; end_seconds: number };
 
 export type EnqueueItem = {
 	url: string;
@@ -95,6 +99,8 @@ export type EnqueueItem = {
 	title: string;
 	thumbnail: string | null;
 	selection: Selection;
+	preflight_checked: boolean;
+	duration_seconds: number | null;
 	size_bytes: number | null;
 };
 
@@ -115,6 +121,7 @@ export type QueueEntry = {
 	thumbnail: string | null;
 	selection: Selection;
 	status: "pending" | "active";
+	duration_seconds: number | null;
 	size_bytes: number | null;
 };
 
@@ -129,6 +136,7 @@ export type HistoryItem = {
 	selection: Selection;
 	status: "success" | "failed" | "cancelled";
 	finished_at: number;
+	duration_seconds: number | null;
 	size_bytes: number | null;
 };
 

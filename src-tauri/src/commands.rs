@@ -37,8 +37,9 @@ pub fn update_queue_metadata(
     video_id: String,
     title: String,
     thumbnail: Option<String>,
+    duration_seconds: Option<u64>,
 ) -> Result<(), String> {
-    runner::update_queue_metadata(&app, id, video_id, title, thumbnail)
+    runner::update_queue_metadata(&app, id, video_id, title, thumbnail, duration_seconds)
 }
 
 #[tauri::command]
@@ -205,5 +206,9 @@ pub async fn check_ytdlp_update(app: AppHandle) -> Result<Option<AppUpdate>, Str
 
 #[tauri::command]
 pub fn app_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+    if cfg!(debug_assertions) {
+        "dev".to_string()
+    } else {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
 }

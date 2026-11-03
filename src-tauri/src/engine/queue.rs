@@ -65,6 +65,10 @@ pub struct Item {
     pub thumbnail: Option<String>,
     pub selection: Selection,
     #[serde(default)]
+    pub preflight_checked: bool,
+    #[serde(default)]
+    pub duration_seconds: Option<u64>,
+    #[serde(default)]
     pub size_bytes: Option<u64>,
 }
 
@@ -77,6 +81,9 @@ pub struct QueueEntry {
     pub thumbnail: Option<String>,
     pub selection: Selection,
     pub status: QueueStatus,
+    #[serde(default)]
+    pub duration_seconds: Option<u64>,
+    #[serde(default)]
     pub size_bytes: Option<u64>,
 }
 
@@ -92,6 +99,8 @@ pub struct HistoryItem {
     pub selection: Selection,
     pub status: HistoryStatus,
     pub finished_at: u64,
+    #[serde(default)]
+    pub duration_seconds: Option<u64>,
     #[serde(default)]
     pub size_bytes: Option<u64>,
 }
@@ -123,6 +132,10 @@ pub struct EnqueueItem {
     #[serde(default)]
     pub thumbnail: Option<String>,
     pub selection: Selection,
+    #[serde(default)]
+    pub preflight_checked: bool,
+    #[serde(default)]
+    pub duration_seconds: Option<u64>,
     #[serde(default)]
     pub size_bytes: Option<u64>,
 }
@@ -266,6 +279,7 @@ impl Engine {
             selection: item.selection,
             status,
             finished_at: now_secs(),
+            duration_seconds: item.duration_seconds,
             size_bytes,
         });
     }
@@ -276,6 +290,7 @@ impl Engine {
         video_id: &str,
         title: &str,
         thumbnail: Option<String>,
+        duration_seconds: Option<u64>,
     ) -> bool {
         let mut changed = false;
         if let Some(item) = self.active.as_mut().filter(|item| item.id == id) {
@@ -287,7 +302,7 @@ impl Engine {
                 video_id,
                 title,
                 &thumbnail,
-            );
+            ) | fill_duration(&mut item.duration_seconds, duration_seconds);
         }
         for item in &mut self.pending {
             if item.id == id {
@@ -299,7 +314,7 @@ impl Engine {
                     video_id,
                     title,
                     &thumbnail,
-                );
+                ) | fill_duration(&mut item.duration_seconds, duration_seconds);
             }
         }
         for item in self.session.iter_mut().chain(self.history.iter_mut()) {
@@ -312,7 +327,7 @@ impl Engine {
                     video_id,
                     title,
                     &thumbnail,
-                );
+                ) | fill_duration(&mut item.duration_seconds, duration_seconds);
             }
         }
         changed
@@ -368,6 +383,8 @@ impl Engine {
                 title: entry.title,
                 thumbnail: entry.thumbnail,
                 selection: entry.selection,
+                preflight_checked: false,
+                duration_seconds: entry.duration_seconds,
                 size_bytes: None,
             });
             retried += 1;
@@ -392,6 +409,8 @@ impl Engine {
             title: entry.title,
             thumbnail: entry.thumbnail,
             selection: entry.selection,
+            preflight_checked: false,
+            duration_seconds: entry.duration_seconds,
             size_bytes: None,
         });
         Ok(true)
@@ -414,6 +433,8 @@ impl Engine {
             title: entry.title,
             thumbnail: entry.thumbnail,
             selection: entry.selection,
+            preflight_checked: false,
+            duration_seconds: entry.duration_seconds,
             size_bytes: None,
         });
         self.session.remove(index);
@@ -494,6 +515,8 @@ impl Engine {
             title: entry.title,
             thumbnail: entry.thumbnail,
             selection: entry.selection,
+            preflight_checked: false,
+            duration_seconds: entry.duration_seconds,
             size_bytes: None,
         });
         Ok(())
@@ -570,6 +593,8 @@ impl Engine {
             title,
             thumbnail: item.thumbnail,
             selection: item.selection,
+            preflight_checked: item.preflight_checked,
+            duration_seconds: item.duration_seconds,
             size_bytes: item.size_bytes,
         });
         EnqueueOutcome::Added { id, video_id }
@@ -619,6 +644,15 @@ fn fill_metadata(
     changed
 }
 
+fn fill_duration(current: &mut Option<u64>, duration: Option<u64>) -> bool {
+    if current.is_none() && duration.is_some() {
+        *current = duration;
+        true
+    } else {
+        false
+    }
+}
+
 pub fn default_download_dir(downloads: &Path) -> std::path::PathBuf {
     downloads.join("Downly")
 }
@@ -632,6 +666,7 @@ fn entry_from(item: &Item, status: QueueStatus) -> QueueEntry {
         thumbnail: item.thumbnail.clone(),
         selection: item.selection.clone(),
         status,
+        duration_seconds: item.duration_seconds,
         size_bytes: item.size_bytes,
     }
 }
@@ -700,7 +735,10 @@ mod tests {
                 preset: Preset::VideoBest,
                 save_thumbnail: false,
                 label: String::new(),
+                clip: None,
             },
+            preflight_checked: false,
+            duration_seconds: None,
             size_bytes: None,
         }
     }
@@ -808,6 +846,7 @@ mod tests {
                 selection: selection.clone(),
                 status: HistoryStatus::Success,
                 finished_at: 1,
+                duration_seconds: None,
                 size_bytes: Some(12),
             },
             super::HistoryItem {
@@ -821,6 +860,7 @@ mod tests {
                 selection,
                 status: HistoryStatus::Failed,
                 finished_at: 2,
+                duration_seconds: None,
                 size_bytes: None,
             },
         ];
@@ -924,6 +964,7 @@ mod tests {
             path: Some(kept.to_string_lossy().to_string()),
             error: None,
             finished_at: 1,
+            duration_seconds: None,
             size_bytes: Some(4),
         });
         engine.pending.clear();
@@ -960,7 +1001,8 @@ mod tests {
             &pending_id,
             "aaa",
             "Resolved title",
-            Some("https://img.test/thumb.jpg".into())
+            Some("https://img.test/thumb.jpg".into()),
+            None
         ));
         assert_eq!(engine.pending[0].title, "Resolved title");
         assert_eq!(
@@ -975,7 +1017,8 @@ mod tests {
             &active_id,
             "bbb",
             "Active title",
-            Some("https://img.test/active.jpg".into())
+            Some("https://img.test/active.jpg".into()),
+            None
         ));
         assert_eq!(engine.active.as_ref().unwrap().title, "Active title");
         engine.finish_active(HistoryStatus::Success, None, None);
@@ -986,7 +1029,8 @@ mod tests {
             &recent_id,
             "ccc",
             "Recent title",
-            Some("https://img.test/recent.jpg".into())
+            Some("https://img.test/recent.jpg".into()),
+            None
         ));
         assert_eq!(engine.session[1].title, "Recent title");
         assert_eq!(

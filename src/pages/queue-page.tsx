@@ -27,6 +27,7 @@ import { FormatPicker } from "@/components/downly/format-picker";
 import { PageShell } from "@/components/downly/page-shell";
 import { QueueList } from "@/components/downly/queue-list";
 import { BrandMark } from "@/components/downly/brand-mark";
+import { ClipPicker } from "@/components/downly/clip-picker";
 import { enqueue, expandPlaylist, probe, retryFailedSessionItem, start, stop, updateQueueMetadata } from "@/lib/api";
 import { classifyCookieError, formatError, hasCookieWarning, toastError, type CookieErrorKind } from "@/lib/errors";
 import {
@@ -36,6 +37,7 @@ import {
 	linesOf,
 	watchUrlWithoutList,
 	type EnqueueOutcome,
+	type ClipRange,
 	type ProbeOutcome,
 	type Snapshot,
 } from "@/lib/downly";
@@ -69,6 +71,7 @@ export function QueuePage({ snapshot }: Props) {
 	const [container, setContainer] = useState<ContainerKind>("mp4");
 	const [qualityId, setQualityId] = useState<string | null>(null);
 	const [saveThumbnail, setSaveThumbnail] = useState(false);
+	const [clipRange, setClipRange] = useState<ClipRange | null>(null);
 	const [playlist, setPlaylist] = useState<{
 		url: string;
 		title: string | null;
@@ -91,7 +94,7 @@ export function QueuePage({ snapshot }: Props) {
 
 	const probedContainers = video ? availableContainers(video.formats) : [];
 	const containers: ContainerKind[] = video ? probedContainers : ["mp4", "mp3", "m4a"];
-	const options: QualityOption[] = useMemo(() => {
+	const baseOptions: QualityOption[] = useMemo(() => {
 		if (video) {
 			return qualityChoices(container, video.formats, video.duration, best);
 		}
@@ -100,6 +103,15 @@ export function QueuePage({ snapshot }: Props) {
 		}
 		return [];
 	}, [video, container, lines.length, playlist, best]);
+	const baseSelected = baseOptions.find((option) => option.id === qualityId) ?? baseOptions[0] ?? null;
+	const clipAllowed = baseSelected?.selection.type === "preset" || (baseSelected?.selection.type === "format" && baseSelected.selection.kind !== "storyboard");
+	const clipRatio = clipRange && mode === "single" && clipAllowed && video?.duration && video.duration > 0
+		? Math.min(1, Math.max(0, (clipRange.end_seconds - clipRange.start_seconds) / video.duration))
+		: 1;
+	const options: QualityOption[] = useMemo(() => baseOptions.map((option) => ({
+		...option,
+		sizeBytes: option.sizeBytes == null ? undefined : Math.round(option.sizeBytes * clipRatio),
+	})), [baseOptions, clipRatio]);
 	const selected = options.find((option) => option.id === qualityId) ?? options[0] ?? null;
 	const askCookiePrompt = useCallback((kind: CookieErrorKind | "metadata") => new Promise<boolean>((resolve) => {
 		const request = { kind, resolve };
@@ -277,6 +289,7 @@ export function QueuePage({ snapshot }: Props) {
 		setVideo(null);
 		setPlaylist(null);
 		setQualityId(null);
+		setClipRange(null);
 		setProbing(false);
 		setMetadataStatus(null);
 		userChangedSelection.current = false;
@@ -358,7 +371,7 @@ export function QueuePage({ snapshot }: Props) {
 				try {
 					const outcome = await probeWithRetries(item.url, false, true);
 					if (outcome.kind === "video") {
-						await updateQueueMetadata(item.id, outcome.id, outcome.title, outcome.thumbnail);
+						await updateQueueMetadata(item.id, outcome.id, outcome.title, outcome.thumbnail, outcome.duration == null ? null : Math.round(outcome.duration));
 					}
 				} catch {
 					continue;
@@ -376,16 +389,19 @@ export function QueuePage({ snapshot }: Props) {
 		if (!selection) {
 			return;
 		}
-		const downloadSelection = { ...selection, save_thumbnail: saveThumbnail };
+		const singleVideo = mode === "single" && lines.length === 1 ? video : null;
+		const downloadClip = singleVideo && clipAllowed ? clipRange : null;
+		const downloadSelection = { ...selection, save_thumbnail: saveThumbnail, clip: downloadClip };
 		setBusy(true);
 		try {
-			const singleVideo = mode === "single" && lines.length === 1 ? video : null;
 			const outcomes = await enqueue(lines.map((url) => ({
 				url,
 				video_id: singleVideo?.id ?? "",
 				title: singleVideo?.title ?? "",
 				thumbnail: singleVideo?.thumbnail ?? null,
 				selection: downloadSelection,
+				preflight_checked: singleVideo != null,
+				duration_seconds: singleVideo?.duration == null ? null : Math.round(singleVideo.duration),
 				size_bytes: singleVideo ? selected?.sizeBytes ?? null : null,
 			})));
 			applyOutcomes(outcomes);
@@ -463,6 +479,8 @@ export function QueuePage({ snapshot }: Props) {
 					title: entry.title ?? entry.url,
 					thumbnail: entry.thumbnail,
 					selection: { ...selected.selection, save_thumbnail: saveThumbnail },
+					preflight_checked: false,
+					duration_seconds: null,
 					size_bytes: null,
 				})),
 			);
@@ -634,6 +652,9 @@ export function QueuePage({ snapshot }: Props) {
 													setQualityId(id);
 												}}
 									/>
+									{video && video.duration && video.duration > 1 && clipAllowed ? (
+										<ClipPicker duration={video.duration} range={clipRange} onChange={setClipRange} />
+									) : null}
 									<Field orientation="horizontal" className="items-center">
 										<Checkbox
 											id="save-thumbnail"

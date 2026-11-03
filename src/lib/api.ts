@@ -18,8 +18,8 @@ export function enqueue(items: EnqueueItem[]) {
 	return invoke<EnqueueOutcome[]>("enqueue", { items });
 }
 
-export function updateQueueMetadata(id: string, videoId: string, title: string, thumbnail: string | null) {
-	return invoke<void>("update_queue_metadata", { id, videoId, title, thumbnail });
+export function updateQueueMetadata(id: string, videoId: string, title: string, thumbnail: string | null, durationSeconds: number | null) {
+	return invoke<void>("update_queue_metadata", { id, videoId, title, thumbnail, durationSeconds });
 }
 
 export function start() {

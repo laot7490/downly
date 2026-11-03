@@ -100,10 +100,11 @@ pub fn update_queue_metadata(
     video_id: String,
     title: String,
     thumbnail: Option<String>,
+    duration_seconds: Option<u64>,
 ) -> Result<(), String> {
     let downly = app.state::<Downly>();
     let mut engine = lock(&downly.engine);
-    if !engine.update_metadata(&id, &video_id, &title, thumbnail) {
+    if !engine.update_metadata(&id, &video_id, &title, thumbnail, duration_seconds) {
         return Ok(());
     }
     store::save(&downly.data_dir, &engine)?;
@@ -576,10 +577,12 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
         Ok(tools) => tools,
         Err(err) => return ItemOutcome::failed(err),
     };
-    match preflight(app, &tools.ytdlp, &item.url, &flag) {
-        Preflight::Cancelled => return ItemOutcome::cancelled(),
-        Preflight::Stop(reason) => return ItemOutcome::failed(reason.as_str()),
-        Preflight::Go => {}
+    if !item.preflight_checked {
+        match preflight(app, &tools.ytdlp, &item.url, &flag) {
+            Preflight::Cancelled => return ItemOutcome::cancelled(),
+            Preflight::Stop(reason) => return ItemOutcome::failed(reason.as_str()),
+            Preflight::Go => {}
+        }
     }
     if flag.load(Ordering::SeqCst) {
         return ItemOutcome::cancelled();
@@ -1050,11 +1053,13 @@ mod tests {
             preset: Preset::VideoBest,
             save_thumbnail: false,
             label: String::new(),
+            clip: None,
         };
         let audio = Selection::Preset {
             preset: Preset::AudioBest,
             save_thumbnail: false,
             label: String::new(),
+            clip: None,
         };
         let storyboard = Selection::Format {
             format_id: "storyboard".into(),
@@ -1065,6 +1070,7 @@ mod tests {
             vcodec: String::new(),
             acodec: String::new(),
             label: String::new(),
+            clip: None,
         };
         assert!(selection_requires_mp4(&video));
         assert!(!selection_requires_mp4(&audio));

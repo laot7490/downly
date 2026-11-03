@@ -48,6 +48,27 @@ export function describeSelection(selection: Selection, best: string): string {
 	return "MP4";
 }
 
+export function describeSelectionDetails(selection: Selection, best: string): { format: string; quality: string } {
+	let label = selection.label;
+	if (!label && selection.type === "preset") {
+		label = presetLabel(selection.preset, best);
+	}
+	const parts = label.split(" · ");
+	if (parts.length > 1) {
+		return { format: parts[0], quality: parts.slice(1).join(" · ") };
+	}
+	if (selection.type === "preset") {
+		return { format: selection.preset.startsWith("audio_") ? "MP3" : "MP4", quality: label || best };
+	}
+	if (selection.mp3_bitrate) {
+		return { format: "MP3", quality: `${selection.mp3_bitrate} kbps` };
+	}
+	return {
+		format: selection.kind === "storyboard" ? "Storyboard" : selection.kind === "audio" ? "M4A" : "MP4",
+		quality: label || best,
+	};
+}
+
 export function presetLabel(preset: Preset, best: string): string {
 	switch (preset) {
 		case "video_best":
