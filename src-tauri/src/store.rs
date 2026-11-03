@@ -56,14 +56,25 @@ pub fn prepare_dir(path: &str) -> Result<PathBuf, String> {
         return Err("path is a file".into());
     }
     fs::create_dir_all(&buf).map_err(|err| err.to_string())?;
-    Ok(fs::canonicalize(&buf).unwrap_or(buf))
+    let canonical = fs::canonicalize(&buf).unwrap_or(buf);
+    Ok(PathBuf::from(normalize_windows_path(&canonical.to_string_lossy())))
+}
+
+fn normalize_windows_path(path: &str) -> String {
+    if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\{}", path);
+    }
+    path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
 }
 
 fn read_settings(data_dir: &Path, downloads: &Path) -> Settings {
     let path = data_dir.join("settings.json");
     if let Ok(text) = fs::read_to_string(&path) {
         match serde_json::from_str::<Settings>(&text) {
-            Ok(settings) if !settings.download_dir.trim().is_empty() => return settings,
+            Ok(mut settings) if !settings.download_dir.trim().is_empty() => {
+                settings.download_dir = normalize_windows_path(&settings.download_dir);
+                return settings;
+            }
             Ok(_) => {}
             Err(_) => {
                 let _ = fs::rename(&path, path.with_extension("json.bad"));
