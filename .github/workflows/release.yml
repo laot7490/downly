@@ -38,5 +38,5 @@ jobs:
           releaseBody: Windows user installer for Downly.
           releaseDraft: true
           prerelease: false
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
           args: --bundles nsis

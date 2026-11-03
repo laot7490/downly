@@ -42,7 +42,7 @@
 	},
 	"plugins": {
 		"updater": {
-			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc3ODc2QkVEMUM3ODFFMTMKUldRVEhuZ2M3V3VIZDN2MkN2cHg3RDFDRmRmK0U2d2J2R25qa0wK",
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc3ODc2QkVEMUM3ODFFMTMKUldRVEhuZ2M3V3VIZDN2MkN2cHg3RDFDRmRmK0U2d2J2R25qa0w0bWZPaVdobUF1M2o5MkdBSmwK",
 			"endpoints": ["https://github.com/laot7490/downly/releases/latest/download/latest.json"]
 		}
 	}
