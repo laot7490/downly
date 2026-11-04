@@ -1,9 +1,9 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { CheckIcon, ClockIcon, DownloadIcon, RefreshCwIcon, SettingsIcon } from "lucide-react";
+import { BadgeCheckIcon, ClockIcon, DownloadIcon, RefreshCwIcon, SettingsIcon } from "lucide-react";
 import {
 	Sidebar,
 	SidebarContent,
@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/toast";
 import { toastError } from "@/lib/errors";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type PageId = "queue" | "history" | "settings";
 
@@ -59,9 +60,22 @@ export default function App() {
 	const [appUpdateProgress, setAppUpdateProgress] = useState<number | null>(null);
 	const [askClose, setAskClose] = useState(false);
 	const [staleCookiesOpen, setStaleCookiesOpen] = useState(false);
+	const pageContentRef = useRef<HTMLDivElement>(null);
 
 	const downloading = snapshot.queue.some((item) => item.status === "active") || snapshot.progress != null;
 	const hasUpdates = Boolean(offers?.app || offers?.ytdlp);
+	useEffect(() => {
+		const content = pageContentRef.current;
+		if (!content || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+		const animation = content.animate(
+			[{ opacity: 0.82, transform: "translateY(4px)" }, { opacity: 1, transform: "translateY(0)" }],
+			{ duration: 180, easing: "ease-out" },
+		);
+		return () => animation.cancel();
+	}, [page]);
+	function navigateTo(nextPage: PageId) {
+		setPage(nextPage);
+	}
 	const requestClose = () => {
 		if (downloading) {
 			setAskClose(true);
@@ -151,15 +165,21 @@ export default function App() {
 									<SidebarMenu className="items-center gap-3">
 										{pages.map((item) => (
 											<SidebarMenuItem key={item.id}>
-												<SidebarMenuButton
-													isActive={page === item.id}
-													onClick={() => setPage(item.id)}
-													className="size-12 justify-center p-0 [&_svg]:size-6"
-													title={t(`nav.${item.id}`)}
-													aria-label={t(`nav.${item.id}`)}>
-													<item.icon />
-													<span className="sr-only">{t(`nav.${item.id}`)}</span>
-												</SidebarMenuButton>
+												<Tooltip>
+													<TooltipTrigger
+														render={
+															<SidebarMenuButton
+																isActive={page === item.id}
+																onClick={() => navigateTo(item.id)}
+																className="size-12 justify-center p-0 transition-[transform,background-color,color] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98] [&_svg]:size-6 [&_svg]:stroke-[1.4] [&_svg]:transition-colors [&_svg]:duration-200"
+																aria-label={t(`nav.${item.id}`)}>
+																<item.icon />
+																<span className="sr-only">{t(`nav.${item.id}`)}</span>
+															</SidebarMenuButton>
+														}
+													/>
+													<TooltipContent side="right" sideOffset={10}>{t(`nav.${item.id}`)}</TooltipContent>
+												</Tooltip>
 											</SidebarMenuItem>
 										))}
 									</SidebarMenu>
@@ -169,17 +189,24 @@ export default function App() {
 								<SidebarGroupContent>
 									<SidebarMenu className="items-center">
 										<SidebarMenuItem>
-											<SidebarMenuButton
-												disabled={!hasUpdates}
-												onClick={() => setUpdatesOpen(true)}
-												className="size-12 justify-center p-0 text-primary [&_svg]:size-6"
-												title={t(hasUpdates ? "settings.updateTitle" : "settings.upToDate")}
-												aria-label={t(hasUpdates ? "settings.updateTitle" : "settings.upToDate")}>
-												{hasUpdates ? <RefreshCwIcon /> : <CheckIcon />}
+											<Tooltip>
+											<TooltipTrigger
+												render={
+													<SidebarMenuButton
+														disabled={!hasUpdates}
+														onClick={() => { if (hasUpdates) setUpdatesOpen(true); }}
+														className={`size-12 justify-center p-0 transition-[transform,background-color,color] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] active:scale-[0.98] [&_svg]:stroke-[1.4] [&_svg]:transition-colors [&_svg]:duration-200 ${hasUpdates ? "text-primary [&_svg]:size-6" : "text-muted-foreground [&_svg]:size-4"}`}
+														title={t(hasUpdates ? "settings.updateTitle" : "settings.upToDate")}
+														aria-label={t(hasUpdates ? "settings.updateTitle" : "settings.upToDate")}>
+												{hasUpdates ? <RefreshCwIcon /> : <BadgeCheckIcon />}
 												<span className="sr-only">
 													{t(hasUpdates ? "settings.updateTitle" : "settings.upToDate")}
 												</span>
-											</SidebarMenuButton>
+													</SidebarMenuButton>
+												}
+											/>
+											<TooltipContent>{t(hasUpdates ? "settings.updateTitle" : "settings.upToDate")}</TooltipContent>
+											</Tooltip>
 										</SidebarMenuItem>
 									</SidebarMenu>
 								</SidebarGroupContent>
@@ -188,7 +215,7 @@ export default function App() {
 					</Sidebar>
 					<SidebarInset className="min-h-0 overflow-hidden">
 						<ScrollArea className="h-full min-h-0">
-							<div className="flex flex-col gap-4 p-4 pt-6">
+							<div ref={pageContentRef} className="flex flex-col gap-4 p-4 pt-6">
 								<div className={page === "queue" ? "contents" : "hidden"}>
 									<QueuePage snapshot={snapshot} />
 								</div>

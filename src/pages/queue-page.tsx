@@ -537,9 +537,7 @@ export function QueuePage({ snapshot }: Props) {
 					</ToggleGroup>
 					<div className="flex items-start gap-2">
 						<div className="relative min-w-0 flex-1">
-							<LinkIcon
-								className={`pointer-events-none absolute size-4 text-muted-foreground ${multi ? "left-3 top-3" : "left-3 top-1/2 -translate-y-1/2"}`}
-							/>
+							<LinkIcon className={`pointer-events-none absolute left-3 size-4 text-muted-foreground ${multi ? "top-2.5" : "top-1/2 -translate-y-1/2"}`} />
 							{multi ? (
 								<Textarea
 									value={text}

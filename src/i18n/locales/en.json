@@ -207,7 +207,7 @@
 		"updateTitle": "Updates",
 		"updateApp": "Update",
 		"updateAction": "Update",
-		"upToDate": "Up to date",
+		"upToDate": "App is up to date",
 		"ytdlpFound": "yt-dlp {{version}} is available.",
 		"languages": {
 			"en": "English",
