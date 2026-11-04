@@ -56,6 +56,7 @@ pub fn run() {
             commands::retry_failed_session_item,
             commands::retry_cancelled_session_item,
             commands::remove_cancelled_session_item,
+            commands::remove_failed_session_item,
             commands::archive_completed_session_all,
             commands::delete_completed_session_item,
             commands::clear_history,

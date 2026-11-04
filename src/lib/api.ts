@@ -94,6 +94,10 @@ export function removeCancelledSessionItem(id: string) {
 	return invoke<void>("remove_cancelled_session_item", { id });
 }
 
+export function removeFailedSessionItem(id: string) {
+	return invoke<void>("remove_failed_session_item", { id });
+}
+
 export function archiveCompletedSessionAll() {
 	return invoke<number>("archive_completed_session_all");
 }

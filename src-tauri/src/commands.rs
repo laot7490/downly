@@ -151,6 +151,11 @@ pub fn remove_cancelled_session_item(app: AppHandle, id: String) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn remove_failed_session_item(app: AppHandle, id: String) -> Result<(), String> {
+    runner::remove_failed_session_item(&app, id)
+}
+
+#[tauri::command]
 pub fn archive_completed_session_all(app: AppHandle) -> Result<usize, String> {
     runner::archive_completed_session_all(&app)
 }

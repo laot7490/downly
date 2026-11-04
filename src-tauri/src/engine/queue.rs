@@ -399,12 +399,12 @@ impl Engine {
     }
 
     pub fn retry_failed_session_item(&mut self, id: &str) -> Result<bool, String> {
-        let entry = self
+        let index = self
             .session
             .iter()
-            .find(|item| item.id == id && item.status == HistoryStatus::Failed)
-            .cloned()
+            .position(|item| item.id == id && item.status == HistoryStatus::Failed)
             .ok_or_else(|| "failed download not found".to_string())?;
+        let entry = self.session[index].clone();
         if self.contains_identity(&entry.video_id, &entry.url) {
             return Ok(false);
         }
@@ -419,6 +419,7 @@ impl Engine {
             duration_seconds: entry.duration_seconds,
             size_bytes: None,
         });
+        self.session.remove(index);
         Ok(true)
     }
 
@@ -500,6 +501,18 @@ impl Engine {
             .session
             .iter()
             .position(|item| item.id == id && item.status == HistoryStatus::Cancelled)
+        else {
+            return Err("not found".into());
+        };
+        self.session.remove(index);
+        Ok(())
+    }
+
+    pub fn remove_failed_session_item(&mut self, id: &str) -> Result<(), String> {
+        let Some(index) = self
+            .session
+            .iter()
+            .position(|item| item.id == id && item.status == HistoryStatus::Failed)
         else {
             return Err("not found".into());
         };

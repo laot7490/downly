@@ -111,6 +111,9 @@ export function describeSelection(selection: Selection, best: string): string {
 	if (selection.mp3_bitrate) {
 		return `MP3 · ${selection.mp3_bitrate} kbps`;
 	}
+	if (selection.type === "format" && selection.output_format) {
+		return selection.output_format.toUpperCase();
+	}
 	if (selection.kind === "audio") {
 		return "M4A";
 	}
@@ -131,6 +134,9 @@ export function describeSelectionDetails(selection: Selection, best: string): { 
 	}
 	if (selection.mp3_bitrate) {
 		return { format: "MP3", quality: `${selection.mp3_bitrate} kbps` };
+	}
+	if (selection.type === "format" && selection.output_format) {
+		return { format: selection.output_format.toUpperCase(), quality: label || best };
 	}
 	return {
 		format: selection.label || (selection.kind === "storyboard" ? "Storyboard" : selection.kind === "audio" ? "Audio" : selection.kind === "image" ? "Image" : "MP4"),

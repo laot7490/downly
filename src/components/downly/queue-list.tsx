@@ -34,6 +34,8 @@ import {
 	retryFailedSession,
 	retryCancelledSessionItem,
 	removeCancelledSessionItem,
+	retryFailedSessionItem,
+	removeFailedSessionItem,
 	revealPath,
 } from "@/lib/api";
 import { toastError } from "@/lib/errors";
@@ -211,9 +213,8 @@ function QueueRow({ item, snapshot, best }: { item: QueueEntry; snapshot: Snapsh
 				(item.status === "pending" || item.status === "active") ? (
 					<Button
 						type="button"
-						variant={item.status === "active" ? "destructive" : "outline"}
+						variant="outline"
 						size="icon"
-						className={item.status === "active" ? "bg-destructive/10 text-destructive hover:bg-destructive/20" : undefined}
 						aria-label={t(item.status === "active" ? "queue.cancelDownload" : "queue.remove")}
 						onClick={() => void cancelItem(item.id).catch((err) => toastError(err, t("queue.errorFailed")))}>
 						{item.status === "active" ? <XIcon /> : <Trash2Icon />}
@@ -302,14 +303,14 @@ function SessionRow({ item, best }: { item: HistoryItem; best: string }) {
 							</AlertDialogContent>
 						</AlertDialog>
 					</>
-				) : item.status === "cancelled" ? (
+				) : item.status === "failed" || item.status === "cancelled" ? (
 					<div className="flex gap-2">
 						<Button
 							type="button"
 							variant="outline"
 							size="icon"
 							aria-label={t("history.retry")}
-							onClick={() => void retryCancelledSessionItem(item.id).catch((err) => toastError(err, t("queue.errorFailed")))}>
+							onClick={() => void (item.status === "failed" ? retryFailedSessionItem(item.id) : retryCancelledSessionItem(item.id)).catch((err) => toastError(err, t("queue.errorFailed")))}>
 							<RefreshCwIcon />
 						</Button>
 						<Button
@@ -317,7 +318,7 @@ function SessionRow({ item, best }: { item: HistoryItem; best: string }) {
 							variant="outline"
 							size="icon"
 							aria-label={t("queue.remove")}
-							onClick={() => void removeCancelledSessionItem(item.id).catch((err) => toastError(err, t("queue.errorFailed")))}>
+							onClick={() => void (item.status === "failed" ? removeFailedSessionItem(item.id) : removeCancelledSessionItem(item.id)).catch((err) => toastError(err, t("queue.errorFailed")))}>
 							<Trash2Icon />
 						</Button>
 					</div>

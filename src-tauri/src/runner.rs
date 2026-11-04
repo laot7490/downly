@@ -361,6 +361,17 @@ pub fn remove_cancelled_session_item(app: &AppHandle, id: String) -> Result<(), 
     Ok(())
 }
 
+pub fn remove_failed_session_item(app: &AppHandle, id: String) -> Result<(), String> {
+    let downly = app.state::<Downly>();
+    {
+        let mut engine = lock(&downly.engine);
+        engine.remove_failed_session_item(&id)?;
+        store::save(&downly.data_dir, &engine)?;
+    }
+    publish(app);
+    Ok(())
+}
+
 pub fn archive_completed_session_all(app: &AppHandle) -> Result<usize, String> {
     let downly = app.state::<Downly>();
     let archived = {
