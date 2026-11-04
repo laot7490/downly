@@ -117,8 +117,9 @@ export function HistoryPage({ snapshot }: Props) {
 													<>
 														<Button
 															type="button"
-															size="icon"
+															size="icon-sm"
 															variant="outline"
+															className="size-8"
 															aria-label={t("history.reveal")}
 															disabled={!item.path}
 															onClick={() => item.path && void revealPath(item.path)}>
@@ -131,6 +132,7 @@ export function HistoryPage({ snapshot }: Props) {
 																		type="button"
 															variant="outline"
 																		size="icon-sm"
+																		className="size-8"
 																		aria-label={t("history.more")}
 																	/>
 																}>

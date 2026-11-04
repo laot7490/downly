@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function () {
+        try {
+          var key = "downly-web-theme"
+          var stored = localStorage.getItem(key)
+          var theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system"
+          var dark =
+            theme === "dark" ||
+            (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+          var root = document.documentElement
+          root.classList.add(dark ? "dark" : "light")
+          root.style.colorScheme = dark ? "dark" : "light"
+          root.style.background = dark ? "#08090a" : "#f7f8f8"
+        } catch (e) {}
+      })()
+    </script>
+    <link rel="icon" type="image/png" href="/brand/favicon-32.png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/brand/icon-128.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08090a" />
+    <meta
+      name="description"
+      content="Paste a link, pick a format, and download through a queue you control — on Windows."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Downly — Paste a link. Queue it. Save it." />
+    <meta
+      property="og:description"
+      content="Paste a link, pick a format, and download through a queue you control — on Windows."
+    />
+    <meta property="og:image" content="https://downly.emirgenc.com.tr/brand/icon-128.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Downly — Paste a link. Queue it. Save it." />
+    <meta
+      name="twitter:description"
+      content="Paste a link, pick a format, and download through a queue you control — on Windows."
+    />
+    <link rel="canonical" href="https://downly.emirgenc.com.tr/" />
+    <title>Downly — Paste a link. Queue it. Save it.</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #08090a;
+      }
+      html.light,
+      html.light body {
+        background: #f7f8f8;
+      }
+      #root {
+        min-height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
