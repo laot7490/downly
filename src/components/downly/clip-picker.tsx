@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -8,8 +7,8 @@ import { formatDuration, type ClipRange } from "@/lib/downly";
 
 type Props = {
 	duration: number;
-	range: ClipRange | null;
-	onChange: (range: ClipRange | null) => void;
+	range: ClipRange;
+	onChange: (range: ClipRange) => void;
 	disabled?: boolean;
 };
 
@@ -28,8 +27,8 @@ function parseTime(value: string): number | null {
 export function ClipPicker({ duration, range, onChange, disabled = false }: Props) {
 	const { t } = useTranslation();
 	const total = Math.max(1, Math.floor(duration));
-	const start = range?.start_seconds ?? 0;
-	const end = range?.end_seconds ?? total;
+	const start = range.start_seconds;
+	const end = range.end_seconds;
 	const [startText, setStartText] = useState(formatDuration(start));
 	const [endText, setEndText] = useState(formatDuration(end));
 	useEffect(() => {
@@ -54,12 +53,7 @@ export function ClipPicker({ duration, range, onChange, disabled = false }: Prop
 
 	return (
 		<div className="flex flex-col gap-3">
-			<Field orientation="horizontal" className="items-center">
-				<Checkbox id="clip-enabled" checked={range != null} disabled={disabled} onCheckedChange={(checked) => onChange(checked === true ? { start_seconds: 0, end_seconds: total } : null)} />
-				<FieldLabel htmlFor="clip-enabled">{t("queue.clip")}</FieldLabel>
-			</Field>
-			{range ? (
-				<>
+			<>
 					<Slider
 						thumbLabels={[t("queue.clipStart"), t("queue.clipEnd")]}
 						min={0}
@@ -85,8 +79,7 @@ export function ClipPicker({ duration, range, onChange, disabled = false }: Prop
 							<Input id="clip-end" inputMode="numeric" placeholder="0:00" value={endText} disabled={disabled} onChange={(event) => setEndText(event.target.value)} onBlur={() => commitTime("end")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
 						</Field>
 					</FieldGroup>
-				</>
-			) : null}
+			</>
 		</div>
 	);
 }

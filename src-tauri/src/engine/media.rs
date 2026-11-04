@@ -43,6 +43,7 @@ pub enum ProbeOutcome {
         channel: Option<String>,
         thumbnail: Option<String>,
         view_count: Option<u64>,
+        upload_date: Option<String>,
         formats: Vec<MediaFormat>,
     },
     Playlist {
@@ -109,6 +110,7 @@ fn video_from(value: &Value) -> Result<ProbeOutcome, String> {
             .or_else(|| opt_string(value, "channel_name")),
         thumbnail: thumbnail_of(value),
         view_count: opt_u64(value, "view_count"),
+        upload_date: opt_string(value, "upload_date").or_else(|| opt_string(value, "release_date")),
         formats,
     })
 }
@@ -358,6 +360,7 @@ mod tests {
             channel,
             thumbnail,
             view_count,
+            upload_date,
             formats,
         } = parse_probe(json, "https://www.youtube.com/watch?v=abc").unwrap()
         else {
@@ -368,6 +371,7 @@ mod tests {
         assert_eq!(duration, Some(12.0));
         assert_eq!(channel.as_deref(), Some("Chan"));
         assert_eq!(view_count, Some(1200));
+        assert_eq!(upload_date, None);
         assert_eq!(thumbnail.as_deref(), Some("https://img/thumb.jpg"));
         assert_eq!(formats.len(), 3);
         assert!(formats[0].video_only);

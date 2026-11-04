@@ -38,6 +38,10 @@ export function cancelItem(id: string) {
 	return invoke<void>("cancel_item", { id });
 }
 
+export function clearQueue() {
+	return invoke<void>("clear_queue");
+}
+
 export function setDownloadDir(path: string) {
 	return invoke<void>("set_download_dir", { path });
 }

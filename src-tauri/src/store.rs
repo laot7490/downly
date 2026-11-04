@@ -40,7 +40,10 @@ pub fn save(data_dir: &Path, engine: &Engine) -> Result<(), String> {
     fs::create_dir_all(data_dir).map_err(|err| err.to_string())?;
     let queue = QueueDisk {
         pending: engine.pending.clone(),
-        active: engine.active.clone(),
+        active: engine
+            .active
+            .clone()
+            .filter(|_| !engine.discard_active_result),
         session: engine.session.clone(),
     };
     write_json(&data_dir.join("queue.json"), &queue)?;

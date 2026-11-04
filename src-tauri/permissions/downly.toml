@@ -10,6 +10,7 @@ commands.allow = [
   "stop",
   "remove",
   "cancel_item",
+  "clear_queue",
   "state",
   "set_download_dir",
   "set_cookies_browser",

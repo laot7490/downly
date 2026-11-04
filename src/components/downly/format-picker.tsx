@@ -1,74 +1,75 @@
 import { useTranslation } from "react-i18next";
-import { AudioLinesIcon, ClapperboardIcon, MusicIcon } from "lucide-react";
+import { ClapperboardIcon, ImageIcon, MusicIcon, ScissorsIcon } from "lucide-react";
 import { Field, FieldTitle } from "@/components/ui/field";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatBytes } from "@/lib/downly";
-import type { ContainerKind, QualityOption } from "@/lib/quality-options";
+import type { FormatChoice, QualityChoice } from "@/lib/media-options";
 
 type Props = {
-	container: ContainerKind;
-	containers: ContainerKind[];
+	formats: FormatChoice[];
+	formatId: string | null;
+	qualities: QualityChoice[];
 	qualityId: string | null;
-	options: QualityOption[];
-	onContainer: (container: ContainerKind) => void;
+	onFormat: (id: string) => void;
 	onQuality: (id: string) => void;
+	clipEnabled: boolean;
+	thumbnailEnabled: boolean;
+	onClipEnabled: (enabled: boolean) => void;
+	onThumbnailEnabled: (enabled: boolean) => void;
+	showClip?: boolean;
+	showThumbnail?: boolean;
 };
 
-const containerMeta: { id: ContainerKind; label: string; icon: typeof ClapperboardIcon }[] = [
-	{ id: "mp4", label: "MP4", icon: ClapperboardIcon },
-	{ id: "mp3", label: "MP3", icon: MusicIcon },
-	{ id: "m4a", label: "M4A", icon: AudioLinesIcon },
-];
+const groups = [
+	{ id: "video", label: "queue.video", icon: ClapperboardIcon },
+	{ id: "audio", label: "queue.audio", icon: MusicIcon },
+	{ id: "image", label: "queue.image", icon: ImageIcon },
+] as const;
 
-export function FormatPicker({ container, containers, qualityId, options, onContainer, onQuality }: Props) {
+export function FormatPicker({ formats, formatId, qualities, qualityId, onFormat, onQuality, clipEnabled, thumbnailEnabled, onClipEnabled, onThumbnailEnabled, showClip = true, showThumbnail = true }: Props) {
 	const { t } = useTranslation();
-	const items = options.map((option) => ({ value: option.id, label: option.label }));
-
+	const formatItems = formats.map((format) => ({ value: format.id, label: format.label }));
+	const qualityItems = qualities.map((quality) => ({ value: quality.id, label: quality.label }));
 	return (
-		<div className="grid items-end gap-4 sm:grid-cols-2">
+		<div className={`grid grid-cols-2 items-end gap-3 ${showClip && showThumbnail ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]" : showClip || showThumbnail ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "sm:grid-cols-2"}`}>
 			<Field>
 				<FieldTitle>{t("queue.format")}</FieldTitle>
-				<ToggleGroup
-					variant="outline"
-					spacing={0}
-					value={[container]}
-					onValueChange={(value) => {
-						const next = value[0];
-						if (next === "mp4" || next === "mp3" || next === "m4a") {
-							onContainer(next);
-						}
-					}}>
-					{containerMeta.map((item) => (
-						<ToggleGroupItem key={item.id} value={item.id} disabled={!containers.includes(item.id)}>
-							<item.icon data-icon="inline-start" />
-							{item.label}
-						</ToggleGroupItem>
-					))}
-				</ToggleGroup>
+				<Select items={formatItems} value={formatId} onValueChange={(value) => {
+					if (typeof value === "string") onFormat(value);
+				}}>
+					<SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+					<SelectContent className="max-h-72">
+						{groups.map((group) => {
+							const choices = formats.filter((format) => format.category === group.id);
+						if (!choices.length) return null;
+						const Icon = group.icon;
+						return (
+							<SelectGroup key={group.id}>
+								<SelectLabel>{t(group.label)}</SelectLabel>
+								{choices.map((format) => (
+									<SelectItem key={format.id} value={format.id}><Icon data-icon="inline-start" className="size-4 shrink-0 self-center" />{format.label}</SelectItem>
+								))}
+							</SelectGroup>
+						);
+						})}
+					</SelectContent>
+				</Select>
 			</Field>
 			<Field>
 				<FieldTitle>{t("queue.quality")}</FieldTitle>
-				<Select
-					items={items}
-					value={qualityId}
-					onValueChange={(next) => {
-						if (typeof next === "string") {
-							onQuality(next);
-						}
-					}}>
-					<SelectTrigger className="w-full sm:min-w-48">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
+				<Select items={qualityItems} value={qualityId} onValueChange={(value) => {
+					if (typeof value === "string") onQuality(value);
+				}}>
+					<SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+					<SelectContent className="max-h-72">
 						<SelectGroup>
-							{options.map((option) => (
-								<SelectItem key={option.id} value={option.id}>
+							{qualities.map((quality) => (
+								<SelectItem key={quality.id} value={quality.id}>
 									<span className="flex w-full items-center justify-between gap-4">
-										<span>{option.label}</span>
-										{option.sizeBytes ? (
-											<span className="shrink-0 text-xs text-muted-foreground">≈ {formatBytes(option.sizeBytes)}</span>
-										) : null}
+										<span>{quality.label}</span>
+										{quality.sizeBytes ? <span className="shrink-0 text-xs text-muted-foreground">≈ {formatBytes(quality.sizeBytes)}</span> : null}
 									</span>
 								</SelectItem>
 							))}
@@ -76,6 +77,18 @@ export function FormatPicker({ container, containers, qualityId, options, onCont
 					</SelectContent>
 				</Select>
 			</Field>
+			{showClip ? <Tooltip>
+				<TooltipTrigger render={<Button type="button" variant="outline" size="icon" aria-label={t("queue.clipToggle")} aria-pressed={clipEnabled} onClick={() => onClipEnabled(!clipEnabled)} className={clipEnabled ? "border-foreground bg-foreground text-background hover:bg-foreground/90 dark:border-white dark:bg-white dark:text-black dark:hover:bg-white" : undefined} />}>
+					<ScissorsIcon className="size-4" />
+				</TooltipTrigger>
+				<TooltipContent>{t("queue.clipToggle")}</TooltipContent>
+			</Tooltip> : null}
+			{showThumbnail ? <Tooltip>
+				<TooltipTrigger render={<Button type="button" variant="outline" size="icon" aria-label={t("queue.thumbnailToggle")} aria-pressed={thumbnailEnabled} onClick={() => onThumbnailEnabled(!thumbnailEnabled)} className={thumbnailEnabled ? "border-foreground bg-foreground text-background hover:bg-foreground/90 dark:border-white dark:bg-white dark:text-black dark:hover:bg-white" : undefined} />}>
+					<ImageIcon className="size-4" />
+				</TooltipTrigger>
+				<TooltipContent>{t("queue.thumbnailToggle")}</TooltipContent>
+			</Tooltip> : null}
 		</div>
 	);
 }

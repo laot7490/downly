@@ -1,5 +1,6 @@
 import { selectionFromFormat, type MediaFormat, type Preset, type Selection } from "@/lib/downly";
 
+export type FormatCategory = "video" | "audio" | "image";
 export type ContainerKind = "mp4" | "mp3" | "m4a";
 
 export type QualityOption = {
@@ -7,7 +8,75 @@ export type QualityOption = {
 	label: string;
 	selection: Selection;
 	sizeBytes?: number;
+	container?: ContainerKind;
+	category?: FormatCategory;
 };
+
+const imageExtensions = new Set(["apng", "avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "tif", "tiff", "webp"]);
+
+export function formatChoices(formats: MediaFormat[]): QualityOption[] {
+	const unique = new Map<string, QualityOption>();
+	for (const format of formats) {
+		if (format.storyboard || !format.ext) continue;
+		const ext = (format.ext ?? "").toLowerCase();
+		const hasVideo = Boolean(format.vcodec && format.vcodec.toLowerCase() !== "none");
+		const hasAudio = Boolean(format.acodec && format.acodec.toLowerCase() !== "none");
+		if (!imageExtensions.has(ext) && !hasVideo && !hasAudio) continue;
+		const category: FormatCategory = imageExtensions.has(ext) ? "image" : hasVideo ? "video" : "audio";
+		const extension = ext === "jpeg" ? "JPG" : ext.toUpperCase();
+		const detail = category === "video" ? displayResolution(format.resolution) || format.note : format.note;
+		const label = detail ? `${extension} · ${detail}` : extension;
+		const option: QualityOption = {
+			id: `${category}-${format.format_id}`,
+			label,
+			category,
+			selection: { ...selectionFromFormat(format, false, null), label },
+			sizeBytes: format.filesize ?? format.filesize_approx ?? undefined,
+		};
+		const variant = category === "video" ? detail ?? "" : format.note ?? "";
+		const key = category === "image" ? `${category}:${ext}` : `${category}:${ext}:${variant}`;
+		const current = unique.get(key);
+		if (!current || (format.filesize ?? format.filesize_approx ?? 0) > (current.sizeBytes ?? 0)) unique.set(key, option);
+	}
+	return [...unique.values()].sort((a, b) => {
+		const categoryOrder = ["video", "audio", "image"];
+		const categoryDifference = categoryOrder.indexOf(a.category ?? "") - categoryOrder.indexOf(b.category ?? "");
+		if (categoryDifference !== 0) return categoryDifference;
+		const aExt = a.label.split(" · ")[0];
+		const bExt = b.label.split(" · ")[0];
+		const priority = a.category === "video" ? ["MP4", "WEBM", "MKV", "MOV"]
+			: a.category === "audio" ? ["MP3", "M4A", "WAV", "OGG", "OPUS", "FLAC", "AAC"]
+				: ["JPG", "PNG", "WEBP", "GIF", "AVIF"];
+		const extensionDifference = rank(priority, aExt) - rank(priority, bExt);
+		if (extensionDifference !== 0) return extensionDifference;
+		if (a.category === "video") return resolutionHeight(b.label) - resolutionHeight(a.label);
+		return a.label.localeCompare(b.label);
+	});
+}
+
+export function defaultFormatChoice(formats: MediaFormat[]): QualityOption | null {
+	const choices = formatChoices(formats);
+	return choices.find((choice) => choice.category === "video" && choice.label.toLowerCase().startsWith("mp4"))
+		?? choices.find((choice) => choice.category === "audio" && choice.label.toLowerCase().startsWith("mp3"))
+		?? choices[0]
+		?? null;
+}
+
+function rank(priority: string[], extension: string): number {
+	const index = priority.indexOf(extension);
+	return index < 0 ? priority.length : index;
+}
+
+function displayResolution(resolution: string | null): string | null {
+	if (!resolution) return null;
+	const dimensions = resolution.match(/\d+\s*[x×]\s*(\d+)/i);
+	if (dimensions) return `${dimensions[1]}p`;
+	return resolution.match(/\d+\s*p/i)?.[0] ?? resolution;
+}
+
+function resolutionHeight(label: string): number {
+	return Number(label.match(/(?:·\s*)?(\d+)p/i)?.[1] ?? 0);
+}
 
 const BITRATES = [320, 256, 192, 128, 96, 64];
 
@@ -64,7 +133,7 @@ export function describeSelectionDetails(selection: Selection, best: string): { 
 		return { format: "MP3", quality: `${selection.mp3_bitrate} kbps` };
 	}
 	return {
-		format: selection.kind === "storyboard" ? "Storyboard" : selection.kind === "audio" ? "M4A" : "MP4",
+		format: selection.label || (selection.kind === "storyboard" ? "Storyboard" : selection.kind === "audio" ? "Audio" : selection.kind === "image" ? "Image" : "MP4"),
 		quality: label || best,
 	};
 }
@@ -109,6 +178,8 @@ export function presetChoices(container: "mp4" | "mp3", best: string): QualityOp
 	return rows.map((row) => ({
 		id: row.id,
 		label: row.label === "best" ? best : row.label,
+		container,
+		category: container === "mp4" ? "video" : "audio",
 		selection: {
 			type: "preset",
 			preset: row.preset,
@@ -138,13 +209,10 @@ export function qualityChoices(
 	duration: number | null,
 	best: string,
 ): QualityOption[] {
-	if (container === "mp4") {
-		return withBest(container, videoChoices(formats), best);
-	}
-	if (container === "mp3") {
-		return withBest(container, mp3Choices(formats, duration), best);
-	}
-	return withBest(container, m4aChoices(formats, duration), best);
+	const rows = container === "mp4" ? withBest(container, videoChoices(formats), best)
+		: container === "mp3" ? withBest(container, mp3Choices(formats, duration), best)
+			: withBest(container, m4aChoices(formats, duration), best);
+	return rows.map((row) => ({ ...row, container, category: container === "mp4" ? "video" : "audio" }));
 }
 
 export function bestQualityId(container: ContainerKind): string {

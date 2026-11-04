@@ -23,6 +23,7 @@ pub enum Preset {
 pub enum FormatKind {
     Video,
     Audio,
+    Image,
     Storyboard,
     #[default]
     Mixed,
@@ -47,6 +48,8 @@ pub enum Selection {
         acodec: String,
         #[serde(default)]
         label: String,
+        #[serde(default)]
+        output_format: String,
         #[serde(default)]
         clip: Option<ClipRange>,
     },
@@ -89,31 +92,47 @@ pub fn format_args(selection: &Selection) -> Vec<String> {
             ..
         } => vec!["-f".into(), format_id.clone()],
         Selection::Format {
+            kind: FormatKind::Audio,
+            format_id,
+            output_format,
+            mp3_bitrate,
+            save_thumbnail,
+            ..
+        } => audio_args(
+            format_id,
+            output_format.eq_ignore_ascii_case("mp3") || mp3_bitrate.is_some(),
+            *mp3_bitrate,
+            *save_thumbnail,
+        ),
+        Selection::Format {
             format_id,
             mp3_bitrate: Some(bitrate),
             save_thumbnail,
             ..
-        } => audio_args(format_id, Some(*bitrate), *save_thumbnail),
-        Selection::Format {
-            kind: FormatKind::Audio,
-            format_id,
-            save_thumbnail,
-            ..
-        } => audio_args(format_id, None, *save_thumbnail),
+        } => audio_args(format_id, true, Some(*bitrate), *save_thumbnail),
         Selection::Format {
             pair_best_audio: true,
             format_id,
             vcodec,
             acodec,
+            output_format,
             save_thumbnail,
             ..
-        } => pair_args(format_id, vcodec, acodec, *save_thumbnail),
+        } => pair_args(format_id, vcodec, acodec, output_format, *save_thumbnail),
         Selection::Format {
             format_id,
+            kind,
+            output_format,
             save_thumbnail,
             ..
         } => {
             let mut args = vec!["-f".into(), format_id.clone()];
+            if matches!(kind, FormatKind::Video | FormatKind::Mixed)
+                && !output_format.is_empty()
+            {
+                args.push("--remux-video".into());
+                args.push(output_format.clone());
+            }
             push_thumbnail(&mut args, *save_thumbnail);
             args
         }
@@ -170,23 +189,30 @@ fn preset_args(preset: Preset, save_thumbnail: bool) -> Vec<String> {
     args
 }
 
-fn audio_args(format_id: &str, mp3_bitrate: Option<u32>, save_thumbnail: bool) -> Vec<String> {
+fn audio_args(format_id: &str, convert_to_mp3: bool, mp3_bitrate: Option<u32>, save_thumbnail: bool) -> Vec<String> {
     let mut args = vec!["-f".into(), format_id.into()];
-    if let Some(bitrate) = mp3_bitrate {
+    if convert_to_mp3 {
         args.push("-x".into());
         args.push("--audio-format".into());
         args.push("mp3".into());
-        args.push("--audio-quality".into());
-        args.push(format!("{bitrate}K"));
+        if let Some(bitrate) = mp3_bitrate {
+            args.push("--audio-quality".into());
+            args.push(format!("{bitrate}K"));
+        }
     }
     push_thumbnail(&mut args, save_thumbnail);
     args
 }
 
-fn pair_args(format_id: &str, vcodec: &str, acodec: &str, save_thumbnail: bool) -> Vec<String> {
+fn pair_args(format_id: &str, vcodec: &str, acodec: &str, output_format: &str, save_thumbnail: bool) -> Vec<String> {
     let mut args = vec!["-f".into(), format!("{format_id}+bestaudio")];
     args.push("--merge-output-format".into());
-    args.push(merge_container(vcodec, acodec).into());
+    args.push(match output_format.to_ascii_lowercase().as_str() {
+        "mp4" => "mp4",
+        "webm" => "webm",
+        "mkv" => "mkv",
+        _ => merge_container(vcodec, acodec),
+    }.into());
     push_thumbnail(&mut args, save_thumbnail);
     args
 }
@@ -241,6 +267,13 @@ mod tests {
             vcodec: vcodec.into(),
             acodec: acodec.into(),
             label: String::new(),
+            output_format: if mp3_bitrate.is_some() {
+                "mp3"
+            } else { match kind {
+                FormatKind::Video => "mp4",
+                FormatKind::Audio => "m4a",
+                _ => "",
+            }}.into(),
             clip: None,
         }
     }

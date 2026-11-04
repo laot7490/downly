@@ -29,6 +29,7 @@ import {
 	archiveCompletedSessionAll,
 	archiveSession,
 	cancelItem,
+	clearQueue,
 	deleteCompletedSessionItem,
 	retryFailedSession,
 	retryCancelledSessionItem,
@@ -53,6 +54,8 @@ export function QueueList({ snapshot, actions }: Props) {
 	const { t } = useTranslation();
 	const best = t("queue.best");
 	const [filter, setFilter] = useState<FilterId>("all");
+	const [clearOpen, setClearOpen] = useState(false);
+	const [clearing, setClearing] = useState(false);
 	const counts = {
 		all: snapshot.queue.length + snapshot.session.length,
 		pending: snapshot.queue.filter((item) => item.status === "pending").length,
@@ -63,7 +66,20 @@ export function QueueList({ snapshot, actions }: Props) {
 	};
 	const failedCount = snapshot.session.filter((item) => item.status === "failed").length;
 	const completedCount = snapshot.session.filter((item) => item.status === "success").length;
+	const hasClearableItems = snapshot.queue.length > 0 || snapshot.session.length > 0;
 	const rows = rowsFor(snapshot, filter);
+
+	async function onClearQueue() {
+		setClearing(true);
+		try {
+			await clearQueue();
+			setClearOpen(false);
+		} catch (err) {
+			toastError(err, t("queue.clearFailed"));
+		} finally {
+			setClearing(false);
+		}
+	}
 
 	return (
 		<div className="flex flex-col gap-3">
@@ -110,11 +126,35 @@ export function QueueList({ snapshot, actions }: Props) {
 									<ArchiveIcon />
 									{t("queue.archiveCompleted")}
 								</DropdownMenuItem>
+								<DropdownMenuItem variant="destructive" disabled={!hasClearableItems} onClick={() => setClearOpen(true)}>
+									<Trash2Icon />
+									{t("queue.clearQueue")}
+								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
 					) : null}
 				</div>
 			</div>
+			<AlertDialog open={clearOpen} onOpenChange={(open) => !clearing && setClearOpen(open)}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>{t("queue.clearQueueTitle")}</AlertDialogTitle>
+						<AlertDialogDescription>{t("queue.clearQueueBody")}</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel disabled={clearing}>{t("queue.clearQueueCancel")}</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							disabled={clearing}
+							onClick={(event) => {
+								event.preventDefault();
+								void onClearQueue();
+							}}>
+							{t("queue.clearQueueConfirm")}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 			{counts.all === 0 ? (
 				<Empty className="flex-none border border-dashed border-border">
 					<EmptyHeader>

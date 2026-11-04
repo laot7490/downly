@@ -161,6 +161,24 @@ pub fn cancel_item(app: &AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+pub fn clear_queue(app: &AppHandle) -> Result<(), String> {
+    let downly = app.state::<Downly>();
+    let active = {
+        let mut engine = lock(&downly.engine);
+        let active = engine.clear_queue();
+        store::save(&downly.data_dir, &engine)?;
+        active
+    };
+    if active {
+        if let Some(flag) = lock(&downly.download_cancel).clone() {
+            flag.store(true, Ordering::SeqCst);
+        }
+        downly.procs.kill_downloads();
+    }
+    publish(app);
+    Ok(())
+}
+
 pub fn remove(app: &AppHandle, id: String) -> Result<(), String> {
     let downly = app.state::<Downly>();
     {
@@ -659,7 +677,10 @@ fn selection_requires_mp4(selection: &Selection) -> bool {
                 | Preset::Video240
                 | Preset::Video144
         ),
-        Selection::Format { kind, .. } => matches!(kind, FormatKind::Video | FormatKind::Mixed),
+        Selection::Format { output_format, kind, .. } => {
+            output_format.eq_ignore_ascii_case("mp4")
+                || (output_format.is_empty() && matches!(kind, FormatKind::Video | FormatKind::Mixed))
+        }
     }
 }
 
@@ -1070,6 +1091,7 @@ mod tests {
             vcodec: String::new(),
             acodec: String::new(),
             label: String::new(),
+            output_format: String::new(),
             clip: None,
         };
         assert!(selection_requires_mp4(&video));

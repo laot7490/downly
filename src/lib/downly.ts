@@ -1,6 +1,6 @@
 export type RejectReason = "add_playlists_on_their_own" | "channel" | "home" | "feed" | "unsupported" | "live";
 
-export type FormatKind = "video" | "audio" | "storyboard" | "mixed";
+export type FormatKind = "video" | "audio" | "image" | "storyboard" | "mixed";
 
 export type Preset =
 	| "video_best"
@@ -51,6 +51,7 @@ export type ProbeOutcome =
 			channel: string | null;
 			thumbnail: string | null;
 			view_count: number | null;
+			upload_date: string | null;
 			formats: MediaFormat[];
 	  }
 	| {
@@ -81,6 +82,7 @@ export type Selection =
 			vcodec: string;
 			acodec: string;
 			label: string;
+			output_format?: string;
 			clip?: ClipRange | null;
 	  }
 	| {
@@ -206,6 +208,13 @@ export function formatCount(value: number | null | undefined): string {
 	return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
+export function formatUploadDate(value: string | null | undefined): string {
+	if (!value) return "";
+	const compact = value.match(/^(\d{4})(\d{2})(\d{2})$/);
+	const date = compact ? new Date(Number(compact[1]), Number(compact[2]) - 1, Number(compact[3])) : new Date(value);
+	return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" }).format(date);
+}
+
 export function isYouTube(url: string): boolean {
 	try {
 		const host = new URL(url).hostname.replace(/^www\./, "");
@@ -228,7 +237,20 @@ export function watchUrlWithoutList(url: string): string | null {
 	}
 }
 
-export function selectionFromFormat(format: MediaFormat, saveThumbnail: boolean, mp3Bitrate: number | null): Selection {
+export function selectionFromFormat(format: MediaFormat, saveThumbnail: boolean, mp3Bitrate: number | null): Extract<Selection, { type: "format" }> {
+	if (/^(jpg|jpeg|png|webp|avif)$/i.test(format.ext ?? "")) {
+		return {
+			type: "format",
+			format_id: format.format_id,
+			pair_best_audio: false,
+			mp3_bitrate: null,
+			save_thumbnail: false,
+			kind: "image",
+			vcodec: format.vcodec ?? "",
+			acodec: format.acodec ?? "",
+			label: (format.ext ?? "image").toUpperCase(),
+		};
+	}
 	if (format.storyboard) {
 		return {
 			type: "format",

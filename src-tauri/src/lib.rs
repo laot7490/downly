@@ -41,6 +41,7 @@ pub fn run() {
             commands::stop,
             commands::remove,
             commands::cancel_item,
+            commands::clear_queue,
             commands::state,
             commands::set_download_dir,
             commands::set_cookies_browser,

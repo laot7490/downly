@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import { ClipboardPasteIcon, DownloadIcon, EyeIcon, Link2Icon, LinkIcon, ListVideoIcon, PlayIcon, SquareIcon, UserRoundIcon } from "lucide-react";
+import { CalendarDaysIcon, ClipboardPasteIcon, DownloadIcon, EyeIcon, Link2Icon, LinkIcon, ListVideoIcon, PlayIcon, SquareIcon, UserRoundIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -33,7 +34,7 @@ import { classifyCookieError, formatError, hasCookieWarning, toastError, type Co
 import {
 	formatCount,
 	formatDuration,
-	isYouTube,
+	formatUploadDate,
 	linesOf,
 	watchUrlWithoutList,
 	type EnqueueOutcome,
@@ -41,14 +42,8 @@ import {
 	type ProbeOutcome,
 	type Snapshot,
 } from "@/lib/downly";
-import {
-	availableContainers,
-	bestQualityId,
-	presetChoices,
-	qualityChoices,
-	type ContainerKind,
-	type QualityOption,
-} from "@/lib/quality-options";
+import { presetChoices } from "@/lib/quality-options";
+import { defaultFormatChoice, formatChoices, qualityChoices, type FormatChoice, type QualityChoice } from "@/lib/media-options";
 
 type Props = {
 	snapshot: Snapshot;
@@ -68,7 +63,7 @@ export function QueuePage({ snapshot }: Props) {
 	const [probeRevision, setProbeRevision] = useState(0);
 	const [metadataStatus, setMetadataStatus] = useState<{ kind: "loading" | "retrying" | "failed" } | null>(null);
 	const [video, setVideo] = useState<Extract<ProbeOutcome, { kind: "video" }> | null>(null);
-	const [container, setContainer] = useState<ContainerKind>("mp4");
+	const [formatId, setFormatId] = useState<string | null>(null);
 	const [qualityId, setQualityId] = useState<string | null>(null);
 	const [saveThumbnail, setSaveThumbnail] = useState(false);
 	const [clipRange, setClipRange] = useState<ClipRange | null>(null);
@@ -92,23 +87,22 @@ export function QueuePage({ snapshot }: Props) {
 	const downloading = snapshot.queue.some((item) => item.status === "active") || snapshot.progress != null;
 	const pending = snapshot.queue.some((item) => item.status === "pending");
 
-	const probedContainers = video ? availableContainers(video.formats) : [];
-	const containers: ContainerKind[] = video ? probedContainers : ["mp4", "mp3", "m4a"];
-	const baseOptions: QualityOption[] = useMemo(() => {
-		if (video) {
-			return qualityChoices(container, video.formats, video.duration, best);
-		}
-		if (lines.length > 0 || playlist) {
-			return presetChoices(container === "m4a" ? "mp3" : container, best);
-		}
-		return [];
-	}, [video, container, lines.length, playlist, best]);
+	const formatOptions: FormatChoice[] = useMemo(() => video ? formatChoices(video.formats) : [], [video]);
+	const selectedFormat = formatOptions.find((option) => option.id === formatId) ?? formatOptions[0] ?? null;
+	const baseOptions: QualityChoice[] = useMemo(() => selectedFormat && video ? qualityChoices(selectedFormat, video.formats, video.duration, best) : [], [selectedFormat, video, best]);
+	const multiFormatOptions: FormatChoice[] = [
+		{ id: "video:mp4", ext: "mp4", label: "MP4", category: "video" },
+		{ id: "audio:mp3", ext: "mp3", label: "MP3", category: "audio" },
+	];
+	const multiFormatId = formatId === "audio:mp3" ? "audio:mp3" : "video:mp4";
+	const multiQualityOptions: QualityChoice[] = useMemo(() => presetChoices(multiFormatId === "audio:mp3" ? "mp3" : "mp4", best).map((option) => ({ id: option.id, label: option.label, selection: option.selection, sizeBytes: option.sizeBytes })), [multiFormatId, best]);
+	const multiSelected = multiQualityOptions.find((option) => option.id === qualityId) ?? multiQualityOptions[0] ?? null;
 	const baseSelected = baseOptions.find((option) => option.id === qualityId) ?? baseOptions[0] ?? null;
-	const clipAllowed = baseSelected?.selection.type === "preset" || (baseSelected?.selection.type === "format" && baseSelected.selection.kind !== "storyboard");
+	const clipAllowed = baseSelected?.selection.type === "preset" || (baseSelected?.selection.type === "format" && baseSelected.selection.kind !== "storyboard" && baseSelected.selection.kind !== "image");
 	const clipRatio = clipRange && mode === "single" && clipAllowed && video?.duration && video.duration > 0
 		? Math.min(1, Math.max(0, (clipRange.end_seconds - clipRange.start_seconds) / video.duration))
 		: 1;
-	const options: QualityOption[] = useMemo(() => baseOptions.map((option) => ({
+	const options: QualityChoice[] = useMemo(() => baseOptions.map((option) => ({
 		...option,
 		sizeBytes: option.sizeBytes == null ? undefined : Math.round(option.sizeBytes * clipRatio),
 	})), [baseOptions, clipRatio]);
@@ -165,10 +159,6 @@ export function QueuePage({ snapshot }: Props) {
 					const seconds = attempt;
 					if (reportStatus && metadataTarget.current === url) {
 						setMetadataStatus({ kind: "retrying" });
-						toast.add({
-							title: t("queue.metadataRetrying", { attempt: attempt + 1, total: 3, seconds }),
-							type: "info",
-						});
 					}
 					await new Promise((resolve) => window.setTimeout(resolve, seconds * 1000));
 				}
@@ -256,19 +246,14 @@ export function QueuePage({ snapshot }: Props) {
 							count: outcome.count,
 							hasVideo: Boolean(watchUrlWithoutList(url)),
 						});
-						if (!userChangedSelection.current) {
-							setContainer("mp4");
-							setQualityId(bestQualityId("mp4"));
-						}
 						return;
 					}
 					setVideo(outcome);
 					setMetadataStatus(null);
 					if (!userChangedSelection.current) {
-						const nextContainers = availableContainers(outcome.formats);
-						const next = nextContainers[0] ?? "mp4";
-						setContainer(next);
-						setQualityId(bestQualityId(next));
+						const format = defaultFormatChoice(outcome.formats);
+						setFormatId(format?.id ?? null);
+						setQualityId(format ? "best" : null);
 					}
 				})
 				.catch(() => {})
@@ -288,6 +273,7 @@ export function QueuePage({ snapshot }: Props) {
 		metadataTarget.current = null;
 		setVideo(null);
 		setPlaylist(null);
+		setFormatId(null);
 		setQualityId(null);
 		setClipRange(null);
 		setProbing(false);
@@ -316,12 +302,6 @@ export function QueuePage({ snapshot }: Props) {
 		}
 	}
 
-	function applyContainer(next: ContainerKind, formats?: Extract<ProbeOutcome, { kind: "video" }>) {
-		userChangedSelection.current = true;
-		setContainer(next);
-		setQualityId(bestQualityId(formats ? next : next === "m4a" ? "mp3" : next));
-	}
-
 	function applyOutcomes(outcomes: EnqueueOutcome[]) {
 		const notes = outcomes
 			.map((outcome) => {
@@ -346,15 +326,16 @@ export function QueuePage({ snapshot }: Props) {
 			if (!trimmed) {
 				return;
 			}
-			if (trimmed === text) {
+			if (!multi && trimmed === text) {
 				clearProbe();
-			setProbing(shouldProbeSingle(trimmed));
+				setProbing(shouldProbeSingle(trimmed));
 				setProbeRevision((revision) => revision + 1);
 				return;
 			}
-			setText(trimmed);
+			const nextText = multi && text.trim() ? `${text.replace(/\s*$/, "")}\n${trimmed}` : trimmed;
+			setText(nextText);
 			clearProbe();
-			setProbing(shouldProbeSingle(trimmed));
+			setProbing(shouldProbeSingle(nextText));
 		} catch (err) {
 			toastError(err, t("queue.pasteFailed"));
 		}
@@ -391,7 +372,11 @@ export function QueuePage({ snapshot }: Props) {
 		}
 		const singleVideo = mode === "single" && lines.length === 1 ? video : null;
 		const downloadClip = singleVideo && clipAllowed ? clipRange : null;
-		const downloadSelection = { ...selection, save_thumbnail: saveThumbnail, clip: downloadClip };
+		const downloadSelection = {
+			...selection,
+			save_thumbnail: selection.type === "format" && selection.kind === "image" ? false : saveThumbnail,
+			clip: downloadClip,
+		};
 		setBusy(true);
 		try {
 			const outcomes = await enqueue(lines.map((url) => ({
@@ -420,12 +405,6 @@ export function QueuePage({ snapshot }: Props) {
 		}
 	}
 
-	function retryMetadata() {
-		clearProbe();
-		setProbing(shouldProbeSingle(text));
-		setProbeRevision((revision) => revision + 1);
-	}
-
 	async function onOnlyThis() {
 		if (!playlist) {
 			return;
@@ -443,10 +422,9 @@ export function QueuePage({ snapshot }: Props) {
 			if (outcome.kind === "video") {
 				setText(watch);
 				setVideo(outcome);
-				const nextContainers = availableContainers(outcome.formats);
-				const next = nextContainers[0] ?? "mp4";
-				setContainer(next);
-				setQualityId(bestQualityId(next));
+				const format = defaultFormatChoice(outcome.formats);
+				setFormatId(format?.id ?? null);
+				setQualityId(format ? "best" : null);
 			} else if (outcome.kind === "rejected") {
 				toast.add({ title: t(`queue.reject.${outcome.reason}`), type: "error" });
 			}
@@ -466,9 +444,11 @@ export function QueuePage({ snapshot }: Props) {
 	}
 
 	async function onAddAll() {
-		if (!playlist || !selected) {
+		if (!playlist) {
 			return;
 		}
+		const selection = multiSelected?.selection ?? presetChoices(multiFormatId === "audio:mp3" ? "mp3" : "mp4", best)[0]?.selection;
+		if (!selection) return;
 		setBusy(true);
 		try {
 			const summary = await runWithCookiePrompt(() => expandPlaylist(playlist.url));
@@ -478,7 +458,7 @@ export function QueuePage({ snapshot }: Props) {
 					video_id: entry.id ?? "",
 					title: entry.title ?? entry.url,
 					thumbnail: entry.thumbnail,
-					selection: { ...selected.selection, save_thumbnail: saveThumbnail },
+					selection: { ...selection, save_thumbnail: saveThumbnail },
 					preflight_checked: false,
 					duration_seconds: null,
 					size_bytes: null,
@@ -514,8 +494,12 @@ export function QueuePage({ snapshot }: Props) {
 	}
 
 	const linksValid = lines.every((line) => /^https?:\/\//i.test(line));
-	const showDetailsCard = (multi && lines.length > 0) || probing || video != null || playlist != null || metadataStatus?.kind === "failed";
-	const showFormatPicker = multi || video != null || metadataStatus?.kind === "failed";
+	const showDetailsCard = (multi && lines.length > 0) || probing || video != null || playlist != null;
+	const pickerFormats = multi ? multiFormatOptions : formatOptions;
+	const pickerQualities = multi ? multiQualityOptions : options;
+	const pickerFormatId = multi ? multiFormatId : selectedFormat?.id ?? null;
+	const pickerQuality = multi ? multiSelected : selected;
+	const showFormatPicker = (multi || video != null) && pickerQualities.length > 0;
 	const metadataBusy = probing || metadataStatus?.kind === "loading" || metadataStatus?.kind === "retrying";
 	const canAdd = !busy && lines.length > 0 && linksValid && (multi || lines.length === 1);
 
@@ -556,17 +540,30 @@ export function QueuePage({ snapshot }: Props) {
 							<LinkIcon
 								className={`pointer-events-none absolute size-4 text-muted-foreground ${multi ? "left-3 top-3" : "left-3 top-1/2 -translate-y-1/2"}`}
 							/>
-							<Textarea
-								value={text}
-								rows={multi ? 3 : 1}
-								className={`resize-none py-2 pr-12 pl-9 ${multi ? "min-h-20" : "min-h-9"}`}
-								placeholder={t(multi ? "queue.linksMultiplePlaceholder" : "queue.linksPlaceholder")}
-								onChange={(event) => {
+							{multi ? (
+								<Textarea
+									value={text}
+									rows={3}
+									className="min-h-20 resize-none py-2 pr-12 pl-9"
+									placeholder={t("queue.linksMultiplePlaceholder")}
+									onChange={(event) => {
+										setText(event.target.value);
+										clearProbe();
+										setProbing(shouldProbeSingle(event.target.value));
+									}}
+								/>
+							) : (
+								<Input
+									value={text}
+									className="h-9 min-w-0 pr-12 pl-9"
+									placeholder={t("queue.linksPlaceholder")}
+									onChange={(event) => {
 									setText(event.target.value);
 									clearProbe();
 									setProbing(shouldProbeSingle(event.target.value));
-								}}
-							/>
+									}}
+								/>
+							)}
 							<div className={`absolute right-1 flex gap-0.5 ${multi ? "top-1 items-start" : "inset-y-0 items-center"}`}>
 								{metadataBusy ? <Spinner /> : null}
 								<Button
@@ -587,8 +584,9 @@ export function QueuePage({ snapshot }: Props) {
 					</div>
 				</Field>
 				{showDetailsCard ? (
-					<Card>
-						<CardContent className="flex flex-col gap-4">
+					<Card className="gap-0 py-0">
+						<CardContent className="p-0">
+							<div className={multi ? "hidden" : "p-6"}>
 							{probing ? (
 								<div className="flex gap-4">
 									<Skeleton className="aspect-video w-48 shrink-0 rounded-lg" />
@@ -613,64 +611,53 @@ export function QueuePage({ snapshot }: Props) {
 											</div>
 										)}
 										{formatDuration(video.duration) ? (
-											<Badge variant="secondary" className="absolute right-1.5 bottom-1.5">
+											<Badge variant="secondary" className="absolute right-1 bottom-1 rounded-md border-0 bg-black/80 text-white shadow-none">
 												{formatDuration(video.duration)}
 											</Badge>
 										) : null}
 									</div>
 									<div className="flex min-w-0 flex-col justify-center gap-2">
 										<p className="text-base font-medium text-foreground">{video.title}</p>
-										{isYouTube(lines[0] ?? "") ? (
-											<div className="flex flex-wrap items-center gap-1.5">
-										{video.channel ? (
-											<Badge variant="secondary">
-												<UserRoundIcon data-icon="inline-start" />
-												{video.channel}
-											</Badge>
-										) : null}
-												{formatCount(video.view_count) ? (
-													<Badge variant="secondary">
-														<EyeIcon data-icon="inline-start" />
-														{formatCount(video.view_count)}
-													</Badge>
-												) : null}
+										{video.channel || formatCount(video.view_count) || formatUploadDate(video.upload_date) ? (
+											<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+											{video.channel ? <span className="inline-flex items-center gap-1.5"><UserRoundIcon className="size-3.5" />{video.channel}</span> : null}
+											{formatCount(video.view_count) ? <span className="inline-flex items-center gap-1.5"><EyeIcon className="size-3.5" />{formatCount(video.view_count)}</span> : null}
+											{formatUploadDate(video.upload_date) ? <span className="inline-flex items-center gap-1.5"><CalendarDaysIcon className="size-3.5" />{formatUploadDate(video.upload_date)}</span> : null}
 											</div>
 										) : null}
 									</div>
 								</div>
 							) : null}
+							</div>
 							{showFormatPicker && !playlist ? (
-								<>
+								<div className={`flex flex-col gap-4 p-6 ${multi ? "" : "border-t border-border bg-muted"}`}>
+								{showFormatPicker && !playlist ? <>
 									<FormatPicker
-										container={container === "m4a" && !video ? "mp3" : container}
-										containers={containers}
-										qualityId={selected?.id ?? null}
-										options={options}
-										onContainer={(next) => applyContainer(next, video ?? undefined)}
-													onQuality={(id) => {
-													userChangedSelection.current = true;
-													setQualityId(id);
-												}}
+										formats={pickerFormats}
+										formatId={pickerFormatId}
+										qualities={pickerQualities}
+										qualityId={pickerQuality?.id ?? null}
+										clipEnabled={clipRange != null}
+										thumbnailEnabled={saveThumbnail}
+										showClip={!multi}
+										showThumbnail
+										onFormat={(id) => {
+											userChangedSelection.current = true;
+											setFormatId(id);
+											setQualityId("best");
+										}}
+										onQuality={(id) => {
+											userChangedSelection.current = true;
+											setQualityId(id);
+										}}
+										onClipEnabled={(enabled) => setClipRange(enabled && video?.duration ? { start_seconds: 0, end_seconds: video.duration } : null)}
+										onThumbnailEnabled={setSaveThumbnail}
 									/>
-									{video && video.duration && video.duration > 1 && clipAllowed ? (
+									{!multi && clipRange && video && video.duration && video.duration > 1 && clipAllowed ? (
 										<ClipPicker duration={video.duration} range={clipRange} onChange={setClipRange} />
 									) : null}
-									<Field orientation="horizontal" className="items-center">
-										<Checkbox
-											id="save-thumbnail"
-											checked={saveThumbnail}
-											onCheckedChange={(checked) => setSaveThumbnail(checked === true)}
-										/>
-										<FieldLabel htmlFor="save-thumbnail">{t("queue.saveThumbnail")}</FieldLabel>
-									</Field>
-									{metadataStatus?.kind === "failed" && mode === "single" && lines.length === 1 ? (
-										<div className="flex justify-end">
-											<Button type="button" variant="ghost" size="sm" onClick={retryMetadata}>
-												{t("queue.retryMetadata")}
-											</Button>
-										</div>
-									) : null}
-								</>
+								</> : null}
+								</div>
 							) : null}
 						</CardContent>
 					</Card>
@@ -709,14 +696,6 @@ export function QueuePage({ snapshot }: Props) {
 					<div className="flex flex-col gap-4">
 						<p className="text-sm text-foreground">{playlist?.title || t("queue.playlistTitle")}</p>
 						<p className="text-sm text-muted-foreground">{t("queue.playlistCount", { count: playlist?.count ?? 0 })}</p>
-						<FormatPicker
-							container={container === "m4a" ? "mp3" : container}
-							containers={["mp4", "mp3"]}
-							qualityId={selected?.id ?? null}
-							options={presetChoices(container === "m4a" ? "mp3" : container, best)}
-							onContainer={(next) => applyContainer(next)}
-							onQuality={setQualityId}
-						/>
 						<Field orientation="horizontal" className="items-center">
 							<Checkbox
 								id="save-thumbnail"
@@ -735,7 +714,7 @@ export function QueuePage({ snapshot }: Props) {
 								{t("queue.onlyThisVideo")}
 							</Button>
 						) : null}
-						<Button type="button" disabled={busy || !selected} onClick={() => void onAddAll()}>
+						<Button type="button" disabled={busy} onClick={() => void onAddAll()}>
 							{t("queue.addAll", { count: playlist?.count ?? 0 })}
 						</Button>
 					</DialogFooter>

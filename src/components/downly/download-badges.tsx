@@ -14,14 +14,16 @@ type Props = {
 export function DownloadBadges({ selection, best, durationSeconds, sizeBytes, estimatedSize = false }: Props) {
 	const details = describeSelectionDetails(selection, best);
 	const clip = selection.clip;
-	const formatClass = details.format === "MP3" || details.format === "M4A"
+	const audio = selection.type === "preset" ? selection.preset.startsWith("audio_") : selection.kind === "audio";
+	const image = selection.type === "format" && (selection.kind === "image" || selection.kind === "storyboard");
+	const formatClass = audio
 		? "border-0 bg-media-audio/10 text-media-audio"
-		: details.format === "Storyboard"
+		: image
 			? "border-0 bg-muted text-muted-foreground"
 			: "border-0 bg-media-video/10 text-media-video";
-	const FormatIcon = details.format === "MP3" || details.format === "M4A"
+	const FormatIcon = audio
 		? MusicIcon
-		: details.format === "Storyboard"
+		: image
 			? ImagesIcon
 			: details.format === "MP4"
 				? VideoIcon

@@ -174,6 +174,7 @@ pub struct Engine {
     pub running: bool,
     pub cancel: bool,
     pub cancel_current: bool,
+    pub discard_active_result: bool,
 }
 
 impl Engine {
@@ -192,6 +193,7 @@ impl Engine {
             running: false,
             cancel: false,
             cancel_current: false,
+            discard_active_result: false,
         }
     }
 
@@ -261,6 +263,10 @@ impl Engine {
         };
         self.progress = None;
         self.cancel_current = false;
+        if self.discard_active_result {
+            self.discard_active_result = false;
+            return;
+        }
         let size_bytes = if status == HistoryStatus::Success {
             path.as_deref()
                 .and_then(|path| std::fs::metadata(path).ok())
@@ -464,6 +470,17 @@ impl Engine {
         };
         self.pending.remove(index);
         Ok(false)
+    }
+
+    pub fn clear_queue(&mut self) -> bool {
+        self.pending.clear();
+        self.session.clear();
+        let active = self.active.is_some();
+        if active {
+            self.cancel_current = true;
+            self.discard_active_result = true;
+        }
+        active
     }
 
     pub fn remove_completed_session_item(&mut self, id: &str) -> Result<(), String> {

@@ -64,6 +64,11 @@ pub fn cancel_item(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn clear_queue(app: AppHandle) -> Result<(), String> {
+    runner::clear_queue(&app)
+}
+
+#[tauri::command]
 pub fn state(app: AppHandle) -> Snapshot {
     runner::state(&app)
 }
