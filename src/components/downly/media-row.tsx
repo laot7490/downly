@@ -4,13 +4,15 @@ import { BrandMark } from "@/components/downly/brand-mark";
 type Props = {
 	thumbnail: string | null;
 	title: string;
+	leading?: ReactNode;
 	meta?: ReactNode;
 	actions?: ReactNode;
 };
 
-export function MediaRow({ thumbnail, title, meta, actions }: Props) {
+export function MediaRow({ thumbnail, title, leading, meta, actions }: Props) {
 	return (
 		<div className="flex items-center gap-3 border-b border-border py-3">
+			{leading}
 			{thumbnail ? (
 				<img src={thumbnail} alt="" className="size-12 rounded-md object-cover" />
 			) : (

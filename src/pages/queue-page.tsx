@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import { CalendarDaysIcon, ClipboardPasteIcon, DownloadIcon, EyeIcon, Link2Icon, LinkIcon, ListVideoIcon, PlayIcon, SquareIcon, UserRoundIcon } from "lucide-react";
+import { CalendarDaysIcon, CheckIcon, ClipboardPasteIcon, DownloadIcon, EyeIcon, HistoryIcon, Link2Icon, LinkIcon, ListVideoIcon, PlayIcon, RadioIcon, SquareIcon, TriangleAlertIcon, UserRoundIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -9,7 +9,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -29,7 +30,7 @@ import { PageShell } from "@/components/downly/page-shell";
 import { QueueList } from "@/components/downly/queue-list";
 import { BrandMark } from "@/components/downly/brand-mark";
 import { ClipPicker } from "@/components/downly/clip-picker";
-import { enqueue, expandPlaylist, probe, retryFailedSessionItem, start, stop, updateQueueMetadata } from "@/lib/api";
+import { enqueue, expandPlaylist, finishLiveRecording, probe, retryFailedSessionItem, start, stop, updateQueueMetadata } from "@/lib/api";
 import { classifyCookieError, formatError, hasCookieWarning, toastError, type CookieErrorKind } from "@/lib/errors";
 import {
 	formatCount,
@@ -39,6 +40,7 @@ import {
 	watchUrlWithoutList,
 	type EnqueueOutcome,
 	type ClipRange,
+	type LiveMode,
 	type ProbeOutcome,
 	type Snapshot,
 } from "@/lib/downly";
@@ -67,6 +69,9 @@ export function QueuePage({ snapshot }: Props) {
 	const [qualityId, setQualityId] = useState<string | null>(null);
 	const [saveThumbnail, setSaveThumbnail] = useState(false);
 	const [clipRange, setClipRange] = useState<ClipRange | null>(null);
+	const [liveDialogOpen, setLiveDialogOpen] = useState(false);
+	const [liveMode, setLiveMode] = useState<LiveMode>("from_now");
+	const [finishingLiveId, setFinishingLiveId] = useState<string | null>(null);
 	const [playlist, setPlaylist] = useState<{
 		url: string;
 		title: string | null;
@@ -85,6 +90,9 @@ export function QueuePage({ snapshot }: Props) {
 	const lines = useMemo(() => linesOf(text), [text]);
 	const multi = mode === "multiple";
 	const downloading = snapshot.queue.some((item) => item.status === "active") || snapshot.progress != null;
+	const activeItem = snapshot.queue.find((item) => item.status === "active") ?? null;
+	const activeLive = activeItem?.live_mode != null;
+	const finishingLive = activeItem != null && activeLive && finishingLiveId === activeItem.id;
 	const pending = snapshot.queue.some((item) => item.status === "pending");
 
 	const formatOptions: FormatChoice[] = useMemo(() => video ? formatChoices(video.formats) : [], [video]);
@@ -98,7 +106,10 @@ export function QueuePage({ snapshot }: Props) {
 	const multiQualityOptions: QualityChoice[] = useMemo(() => presetChoices(multiFormatId === "audio:mp3" ? "mp3" : "mp4", best).map((option) => ({ id: option.id, label: option.label, selection: option.selection, sizeBytes: option.sizeBytes })), [multiFormatId, best]);
 	const multiSelected = multiQualityOptions.find((option) => option.id === qualityId) ?? multiQualityOptions[0] ?? null;
 	const baseSelected = baseOptions.find((option) => option.id === qualityId) ?? baseOptions[0] ?? null;
-	const clipAllowed = baseSelected?.selection.type === "preset" || (baseSelected?.selection.type === "format" && baseSelected.selection.kind !== "storyboard" && baseSelected.selection.kind !== "image");
+	const clipAllowed = !video?.is_live && (
+		baseSelected?.selection.type === "preset" ||
+		(baseSelected?.selection.type === "format" && baseSelected.selection.kind !== "storyboard" && baseSelected.selection.kind !== "image")
+	);
 	const clipRatio = clipRange && mode === "single" && clipAllowed && video?.duration && video.duration > 0
 		? Math.min(1, Math.max(0, (clipRange.end_seconds - clipRange.start_seconds) / video.duration))
 		: 1;
@@ -272,6 +283,7 @@ export function QueuePage({ snapshot }: Props) {
 	function clearProbe() {
 		metadataTarget.current = null;
 		setVideo(null);
+		setLiveDialogOpen(false);
 		setPlaylist(null);
 		setFormatId(null);
 		setQualityId(null);
@@ -362,7 +374,16 @@ export function QueuePage({ snapshot }: Props) {
 		await Promise.all(workers);
 	}
 
-	async function onAdd() {
+	function onAdd() {
+		if (video?.is_live) {
+			setLiveMode("from_now");
+			setLiveDialogOpen(true);
+			return;
+		}
+		void enqueueCurrent(null);
+	}
+
+	async function enqueueCurrent(selectedLiveMode: LiveMode | null) {
 		if (lines.length === 0 || (mode === "single" && lines.length !== 1)) {
 			return;
 		}
@@ -385,11 +406,13 @@ export function QueuePage({ snapshot }: Props) {
 				title: singleVideo?.title ?? "",
 				thumbnail: singleVideo?.thumbnail ?? null,
 				selection: downloadSelection,
+				live_mode: selectedLiveMode,
 				preflight_checked: singleVideo != null,
-				duration_seconds: singleVideo?.duration == null ? null : Math.round(singleVideo.duration),
-				size_bytes: singleVideo ? selected?.sizeBytes ?? null : null,
+				duration_seconds: singleVideo && !singleVideo.is_live && singleVideo.duration != null ? Math.round(singleVideo.duration) : null,
+				size_bytes: singleVideo?.is_live ? null : singleVideo ? selected?.sizeBytes ?? null : null,
 			})));
 			applyOutcomes(outcomes);
+			setLiveDialogOpen(false);
 			const hydration = outcomes.flatMap((outcome, index) =>
 				outcome.kind === "added" && !singleVideo ? [{ id: outcome.id, url: lines[index] }] : [],
 			);
@@ -487,8 +510,14 @@ export function QueuePage({ snapshot }: Props) {
 
 	async function onStop() {
 		try {
-			await stop();
+			if (activeLive && activeItem) {
+				setFinishingLiveId(activeItem.id);
+				await finishLiveRecording();
+			} else {
+				await stop();
+			}
 		} catch (err) {
+			setFinishingLiveId(null);
 			toastError(err, t("queue.errorFailed"));
 		}
 	}
@@ -501,7 +530,7 @@ export function QueuePage({ snapshot }: Props) {
 	const pickerQuality = multi ? multiSelected : selected;
 	const showFormatPicker = (multi || video != null) && pickerQualities.length > 0;
 	const metadataBusy = probing || metadataStatus?.kind === "loading" || metadataStatus?.kind === "retrying";
-	const canAdd = !busy && lines.length > 0 && linksValid && (multi || lines.length === 1);
+	const canAdd = !busy && !metadataBusy && lines.length > 0 && linksValid && (multi || lines.length === 1);
 
 	return (
 		<PageShell>
@@ -511,30 +540,33 @@ export function QueuePage({ snapshot }: Props) {
 			</div>
 			<FieldGroup>
 				<Field>
-					<ToggleGroup
-						aria-label={t("queue.inputMode")}
-						variant="outline"
-						spacing={0}
-						value={[mode]}
-						onValueChange={(value) => {
-							const next = value[0];
-							if (next === "single" || next === "multiple") {
-								setMode(next);
-								clearProbe();
-								if (next === "single") {
-									setProbing(shouldProbeSingle(text, next));
+					<div className="w-fit">
+						<ToggleGroup
+							aria-label={t("queue.inputMode")}
+							className="w-fit rounded-lg bg-transparent p-1 dark:bg-input/30"
+							size="sm"
+							spacing={1}
+							value={[mode]}
+							onValueChange={(value) => {
+								const next = value[0];
+								if (next === "single" || next === "multiple") {
+									setMode(next);
+									clearProbe();
+									if (next === "single") {
+										setProbing(shouldProbeSingle(text, next));
+									}
 								}
-							}
-						}}>
-						<ToggleGroupItem value="single" className="min-w-24 justify-center">
-							<Link2Icon data-icon="inline-start" />
-							{t("queue.single")}
-						</ToggleGroupItem>
-						<ToggleGroupItem value="multiple" className="min-w-24 justify-center">
-							<ListVideoIcon data-icon="inline-start" />
-							{t("queue.multiple")}
-						</ToggleGroupItem>
-					</ToggleGroup>
+							}}>
+							<ToggleGroupItem value="single" className="min-w-24 justify-center aria-pressed:bg-background aria-pressed:shadow-xs">
+								<Link2Icon data-icon="inline-start" />
+								{t("queue.single")}
+							</ToggleGroupItem>
+							<ToggleGroupItem value="multiple" className="min-w-24 justify-center aria-pressed:bg-background aria-pressed:shadow-xs">
+								<ListVideoIcon data-icon="inline-start" />
+								{t("queue.multiple")}
+							</ToggleGroupItem>
+						</ToggleGroup>
+					</div>
 					<div className="flex items-start gap-2">
 						<div className="relative min-w-0 flex-1">
 							<LinkIcon className={`pointer-events-none absolute left-3 size-4 text-muted-foreground ${multi ? "top-2.5" : "top-1/2 -translate-y-1/2"}`} />
@@ -575,7 +607,7 @@ export function QueuePage({ snapshot }: Props) {
 								</Button>
 							</div>
 						</div>
-						<Button type="button" size="lg" className="w-24 shrink-0" disabled={!canAdd} onClick={() => void onAdd()}>
+						<Button type="button" size="lg" className="w-24 shrink-0" disabled={!canAdd} onClick={onAdd}>
 							{busy ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
 							{t("queue.add")}
 						</Button>
@@ -608,14 +640,14 @@ export function QueuePage({ snapshot }: Props) {
 												<BrandMark className="size-8 opacity-40" />
 											</div>
 										)}
-										{formatDuration(video.duration) ? (
+										{!video.is_live && formatDuration(video.duration) ? (
 											<Badge variant="secondary" className="absolute right-1 bottom-1 rounded-md border-0 bg-black/80 text-white shadow-none">
 												{formatDuration(video.duration)}
 											</Badge>
 										) : null}
 									</div>
 									<div className="flex min-w-0 flex-col justify-center gap-2">
-										<p className="text-base font-medium text-foreground">{video.title}</p>
+										<p className="text-base font-medium text-foreground">{video.title}{video.is_live ? <Badge variant="destructive" className="ml-2 align-middle"><RadioIcon aria-hidden="true" />{t("queue.live")}</Badge> : null}</p>
 										{video.channel || formatCount(video.view_count) || formatUploadDate(video.upload_date) ? (
 											<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
 											{video.channel ? <span className="inline-flex items-center gap-1.5"><UserRoundIcon className="size-3.5" />{video.channel}</span> : null}
@@ -637,7 +669,7 @@ export function QueuePage({ snapshot }: Props) {
 										qualityId={pickerQuality?.id ?? null}
 										clipEnabled={clipRange != null}
 										thumbnailEnabled={saveThumbnail}
-										showClip={!multi}
+										showClip={!multi && !video?.is_live}
 										showThumbnail
 										onFormat={(id) => {
 											userChangedSelection.current = true;
@@ -666,10 +698,10 @@ export function QueuePage({ snapshot }: Props) {
 				<QueueList
 					snapshot={snapshot}
 					actions={
-						downloading ? (
-							<Button type="button" variant="destructive" size="default" className="shrink-0" onClick={() => void onStop()}>
+							downloading ? (
+							<Button type="button" variant="destructive" size="default" className="shrink-0" disabled={finishingLive} onClick={() => void onStop()}>
 								<SquareIcon data-icon="inline-start" />
-								{t("queue.stop")}
+								{activeLive ? t("queue.finishLiveRecording") : t("queue.stop")}
 							</Button>
 						) : (
 							<Button type="button" size="default" className="shrink-0" disabled={!pending} onClick={() => void onStart()}>
@@ -680,6 +712,57 @@ export function QueuePage({ snapshot }: Props) {
 					}
 				/>
 			</div>
+			<Dialog
+				open={liveDialogOpen}
+				onOpenChange={setLiveDialogOpen}>
+				<DialogContent className="sm:max-w-md">
+					<DialogHeader>
+						<DialogTitle>{t("queue.liveDialogTitle")}</DialogTitle>
+						<DialogDescription>{t("queue.liveDialogBody")}</DialogDescription>
+					</DialogHeader>
+					<div className="flex flex-col gap-4">
+						<ToggleGroup
+							aria-label={t("queue.liveSelectionLabel")}
+							className="w-full flex-col"
+							variant="outline"
+							spacing={1}
+							value={[liveMode]}
+							onValueChange={(value) => {
+								const next = value[0];
+								if (next === "from_now" || next === "from_start") {
+									setLiveMode(next);
+								}
+							}}>
+							<ToggleGroupItem value="from_now" className="h-auto min-h-16 w-full justify-start gap-2 whitespace-normal px-5 py-3 text-left aria-pressed:border-primary/50 aria-pressed:bg-accent aria-pressed:text-accent-foreground">
+								<RadioIcon data-icon="inline-start" className="size-5" aria-hidden="true" />
+								<span className="flex min-w-0 flex-1 flex-col gap-1">
+									<span className="font-medium">{t("queue.liveFromNow")}</span>
+									<span className="text-xs font-normal text-muted-foreground">{t("queue.liveFromNowDescription")}</span>
+								</span>
+								{liveMode === "from_now" ? <CheckIcon data-icon="inline-end" aria-hidden="true" /> : null}
+							</ToggleGroupItem>
+							<ToggleGroupItem value="from_start" className="h-auto min-h-16 w-full justify-start gap-2 whitespace-normal px-5 py-3 text-left aria-pressed:border-primary/50 aria-pressed:bg-accent aria-pressed:text-accent-foreground">
+								<HistoryIcon data-icon="inline-start" className="size-5" aria-hidden="true" />
+								<span className="flex min-w-0 flex-1 flex-col gap-1">
+									<span className="font-medium">{t("queue.liveFromStart")}</span>
+									<span className="text-xs font-normal text-muted-foreground">{t("queue.liveFromStartDescription")}</span>
+								</span>
+								{liveMode === "from_start" ? <CheckIcon data-icon="inline-end" aria-hidden="true" /> : null}
+							</ToggleGroupItem>
+						</ToggleGroup>
+						{liveMode === "from_start" ? (
+							<Alert variant="warning" className="grid-cols-[auto_1fr] items-center gap-x-2">
+								<TriangleAlertIcon aria-hidden="true" />
+								<AlertDescription>{t("queue.liveFromStartWarning")}</AlertDescription>
+							</Alert>
+						) : null}
+					</div>
+					<DialogFooter>
+						<Button type="button" variant="outline" disabled={busy} onClick={() => setLiveDialogOpen(false)}>{t("queue.clearQueueCancel")}</Button>
+						<Button type="button" disabled={busy} onClick={() => void enqueueCurrent(liveMode)}>{busy ? <Spinner data-icon="inline-start" /> : null}{t("queue.add")}</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 			<Dialog
 				open={playlist != null}
 				onOpenChange={(open) => {

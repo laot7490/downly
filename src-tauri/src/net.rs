@@ -27,6 +27,18 @@ pub async fn get_text(url: &str) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|err| err.to_string())
 }
 
+pub async fn get_final_url(url: &str) -> Result<String, String> {
+    let response = client()?
+        .get(url)
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("request failed: {}", response.status()));
+    }
+    Ok(response.url().to_string())
+}
+
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)

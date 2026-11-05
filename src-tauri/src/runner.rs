@@ -70,6 +70,7 @@ pub fn expand_playlist(app: &AppHandle, url: String) -> Result<PlaylistSummary, 
         ),
         false,
         &AtomicBool::new(false),
+        None,
         |_| {},
     )?;
     if captured.cancelled {
@@ -116,8 +117,9 @@ pub fn update_queue_metadata(
 
 pub fn start(app: &AppHandle) -> Result<(), String> {
     let _tools = require_tools(app)?;
+    let downly = app.state::<Downly>();
+    downly.finish_live_recording.store(false, Ordering::SeqCst);
     {
-        let downly = app.state::<Downly>();
         let mut engine = lock(&downly.engine);
         if !engine.begin() {
             return Ok(());
@@ -132,6 +134,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
 
 pub fn stop(app: &AppHandle) -> Result<(), String> {
     let downly = app.state::<Downly>();
+    downly.finish_live_recording.store(false, Ordering::SeqCst);
     {
         let mut engine = lock(&downly.engine);
         engine.request_stop();
@@ -139,6 +142,28 @@ pub fn stop(app: &AppHandle) -> Result<(), String> {
     if let Some(flag) = lock(&downly.download_cancel).clone() {
         flag.store(true, Ordering::SeqCst);
     }
+    downly.procs.kill_downloads();
+    Ok(())
+}
+
+pub fn finish_live_recording(app: &AppHandle) -> Result<(), String> {
+    let downly = app.state::<Downly>();
+    let live_capture = lock(&downly.live_capture);
+    let mut engine = lock(&downly.engine);
+    let active = engine
+        .active
+        .as_ref()
+        .filter(|item| item.live_mode.is_some())
+        .ok_or_else(|| "no live recording is active".to_string())?;
+    if live_capture.as_deref() != Some(active.id.as_str()) {
+        return Err("live recording is not ready to be finished".into());
+    }
+    if downly.finish_live_recording.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    engine.cancel = true;
+    drop(engine);
+    drop(live_capture);
     downly.procs.kill_downloads();
     Ok(())
 }
@@ -152,6 +177,7 @@ pub fn cancel_item(app: &AppHandle, id: String) -> Result<(), String> {
         active
     };
     if active {
+        downly.finish_live_recording.store(false, Ordering::SeqCst);
         if let Some(flag) = lock(&downly.download_cancel).clone() {
             flag.store(true, Ordering::SeqCst);
         }
@@ -163,6 +189,7 @@ pub fn cancel_item(app: &AppHandle, id: String) -> Result<(), String> {
 
 pub fn clear_queue(app: &AppHandle) -> Result<(), String> {
     let downly = app.state::<Downly>();
+    downly.finish_live_recording.store(false, Ordering::SeqCst);
     let active = {
         let mut engine = lock(&downly.engine);
         let active = engine.clear_queue();
@@ -188,6 +215,26 @@ pub fn remove(app: &AppHandle, id: String) -> Result<(), String> {
     }
     publish(app);
     Ok(())
+}
+
+pub fn reorder_queue_item(
+    app: &AppHandle,
+    id: String,
+    before_id: Option<String>,
+) -> Result<bool, String> {
+    let downly = app.state::<Downly>();
+    let changed = {
+        let mut engine = lock(&downly.engine);
+        let changed = engine.reorder_pending(&id, before_id.as_deref())?;
+        if changed {
+            store::save(&downly.data_dir, &engine)?;
+        }
+        changed
+    };
+    if changed {
+        publish(app);
+    }
+    Ok(changed)
 }
 
 pub fn state(app: &AppHandle) -> Snapshot {
@@ -432,6 +479,7 @@ pub fn ytdlp_info(app: &AppHandle) -> Result<YtdlpInfo, String> {
         &version_args(),
         false,
         &AtomicBool::new(false),
+        None,
         |_| {},
     )?;
     if captured.code != 0 {
@@ -586,6 +634,7 @@ async fn drive(app: AppHandle) {
 
 fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
     let downly = app.state::<Downly>();
+    let _finish_live_reset = FinishLiveReset(&downly.finish_live_recording);
     let (dir, flag) = {
         let engine = lock(&downly.engine);
         let dir = PathBuf::from(engine.settings.download_dir.clone());
@@ -606,8 +655,8 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
         Ok(tools) => tools,
         Err(err) => return ItemOutcome::failed(err),
     };
-    if !item.preflight_checked {
-        match preflight(app, &tools.ytdlp, &item.url, &flag) {
+    if !item.preflight_checked && item.live_mode.is_none() {
+        match preflight(app, &tools.ytdlp, &item.url, item.live_mode.is_some(), &flag) {
             Preflight::Cancelled => return ItemOutcome::cancelled(),
             Preflight::Stop(reason) => return ItemOutcome::failed(reason.as_str()),
             Preflight::Go => {}
@@ -630,6 +679,7 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
         cookies_browser.ytdlp_name(),
         cookies_file.as_deref(),
         file_contains_id(&dir, &item.video_id).then_some(item.id.as_str()),
+        item.live_mode,
     ) {
         Ok(args) => args,
         Err(err) => return ItemOutcome::failed(err),
@@ -637,13 +687,54 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
     let before = snapshot_id(&dir, &item.video_id);
     let mut tracked = Vec::new();
     let mut final_path = None;
-    let captured = run_retry(app, &tools.ytdlp, &args, true, &flag, |line| {
-        note_line(app, line, &mut tracked, &mut final_path);
+    let live = item.live_mode.is_some();
+    if live {
+        *lock(&downly.live_capture) = Some(item.id.clone());
+    }
+    let captured = run_retry(app, &tools.ytdlp, &args, true, &flag, live.then_some(&downly.finish_live_recording), |line| {
+        note_line(app, line, &mut tracked, &mut final_path, live);
     });
+    if live {
+        let mut active = lock(&downly.live_capture);
+        if active.as_deref() == Some(item.id.as_str()) {
+            *active = None;
+        }
+    }
+    let finishing_live = live && downly.finish_live_recording.load(Ordering::SeqCst);
     match captured {
         Ok(captured) if captured.cancelled || flag.load(Ordering::SeqCst) => {
             delete_cancelled(&dir, &item.video_id, &before, &tracked);
             ItemOutcome::cancelled()
+        }
+        Ok(_) if finishing_live => {
+            let Some(output) = choose_output(final_path.as_deref(), &tracked, &dir, &item.video_id) else {
+                return ItemOutcome::failed("no live recording output was saved");
+            };
+            if selection_requires_mp4(&item.selection) {
+                match ensure_mp4(
+                    &downly.procs,
+                    &tools.ffmpeg_dir,
+                    Path::new(&output),
+                    &item.id,
+                    &flag,
+                ) {
+                    Ok(path) => ItemOutcome::success(Some(path)),
+                    Err(outcome) if outcome.cancelled => {
+                        delete_cancelled(&dir, &item.video_id, &before, &tracked);
+                        outcome
+                    }
+                    Err(outcome) => ItemOutcome::failed_with_path(
+                        format!(
+                            "{}; MPEG-TS recording kept at {}",
+                            outcome.error.unwrap_or_else(|| "MP4 conversion failed".into()),
+                            output
+                        ),
+                        output,
+                    ),
+                }
+            } else {
+                ItemOutcome::success(Some(output))
+            }
         }
         Ok(_) => {
             let output = choose_output(final_path.as_deref(), &tracked, &dir, &item.video_id);
@@ -717,7 +808,7 @@ fn ensure_mp4(
     let ffmpeg = ffmpeg_dir.join(ffmpeg_filename());
     let remux_args = mp4_conversion_args(source, &temp, false);
     let remux =
-        capture(procs, true, &ffmpeg, &remux_args, cancel, |_| {}).map_err(ItemOutcome::failed)?;
+        capture(procs, true, &ffmpeg, &remux_args, cancel, None, |_| {}).map_err(ItemOutcome::failed)?;
     if remux.cancelled {
         let _ = std::fs::remove_file(&temp);
         return Err(ItemOutcome::cancelled());
@@ -725,7 +816,7 @@ fn ensure_mp4(
     if remux.code != 0 {
         let _ = std::fs::remove_file(&temp);
         let recode_args = mp4_conversion_args(source, &temp, true);
-        let recode = capture(procs, true, &ffmpeg, &recode_args, cancel, |_| {})
+        let recode = capture(procs, true, &ffmpeg, &recode_args, cancel, None, |_| {})
             .map_err(ItemOutcome::failed)?;
         if recode.cancelled {
             let _ = std::fs::remove_file(&temp);
@@ -782,7 +873,13 @@ fn mp4_conversion_args(source: &Path, temp: &Path, recode: bool) -> Vec<String> 
     args
 }
 
-fn preflight(app: &AppHandle, ytdlp: &Path, url: &str, cancel: &AtomicBool) -> Preflight {
+fn preflight(
+    app: &AppHandle,
+    ytdlp: &Path,
+    url: &str,
+    allow_live: bool,
+    cancel: &AtomicBool,
+) -> Preflight {
     let deno = js_runtime(app);
     let (cookies_browser, cookies_file) = match cookie_options(app) {
         Ok(options) => options,
@@ -799,6 +896,7 @@ fn preflight(app: &AppHandle, ytdlp: &Path, url: &str, cancel: &AtomicBool) -> P
         ),
         true,
         cancel,
+        None,
         |_| {},
     ) {
         Ok(captured) => captured,
@@ -811,6 +909,9 @@ fn preflight(app: &AppHandle, ytdlp: &Path, url: &str, cancel: &AtomicBool) -> P
         return Preflight::Go;
     }
     match parse_probe(&captured.stdout, url) {
+        Ok(ProbeOutcome::Video { is_live: true, .. }) if !allow_live => {
+            Preflight::Stop(RejectReason::Live)
+        }
         Ok(ProbeOutcome::Rejected {
             reason: RejectReason::Live,
         }) => Preflight::Stop(RejectReason::Live),
@@ -838,7 +939,7 @@ fn run_probe(app: &AppHandle, url: &str, playlist: bool) -> Result<ProbeOutcome,
             cookies_file.as_deref(),
         )
     };
-    let captured = run_retry(app, &ytdlp, &args, false, &AtomicBool::new(false), |_| {})?;
+    let captured = run_retry(app, &ytdlp, &args, false, &AtomicBool::new(false), None, |_| {})?;
     if captured.cancelled {
         return Err("cancelled".into());
     }
@@ -869,6 +970,7 @@ fn run_retry(
     args: &[String],
     download: bool,
     cancel: &AtomicBool,
+    finish: Option<&AtomicBool>,
     mut on_line: impl FnMut(&str),
 ) -> Result<Capture, String> {
     let mut attempt = 0u32;
@@ -878,8 +980,11 @@ fn run_retry(
         }
         attempt += 1;
         let downly = app.state::<Downly>();
-        let captured = capture(&downly.procs, download, exe, args, cancel, &mut on_line)?;
+        let captured = capture(&downly.procs, download, exe, args, cancel, finish, &mut on_line)?;
         if captured.cancelled {
+            return Ok(captured);
+        }
+        if finish.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
             return Ok(captured);
         }
         if captured.code == 0 {
@@ -900,6 +1005,7 @@ fn note_line(
     line: &str,
     tracked: &mut Vec<PathBuf>,
     final_path: &mut Option<PathBuf>,
+    live: bool,
 ) {
     if let Some(path) = destination_path(line) {
         let buf = PathBuf::from(&path);
@@ -917,7 +1023,11 @@ fn note_line(
         let downly = app.state::<Downly>();
         let snap = {
             let mut engine = lock(&downly.engine);
-            engine.set_progress(Some(progress.percent), progress.speed, progress.eta);
+            engine.set_progress(
+                if live { None } else { Some(progress.percent) },
+                progress.speed,
+                if live { None } else { progress.eta },
+            );
             engine.snapshot()
         };
         emit(app, &snap);
@@ -1000,6 +1110,14 @@ fn emit(app: &AppHandle, snap: &Snapshot) {
     let _ = app.emit("downly-state", snap);
 }
 
+struct FinishLiveReset<'a>(&'a AtomicBool);
+
+impl Drop for FinishLiveReset<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 struct ItemOutcome {
     status: HistoryStatus,
     path: Option<String>,
@@ -1021,6 +1139,15 @@ impl ItemOutcome {
         Self {
             status: HistoryStatus::Failed,
             path: None,
+            error: Some(error.into()),
+            cancelled: false,
+        }
+    }
+
+    fn failed_with_path(error: impl Into<String>, path: String) -> Self {
+        Self {
+            status: HistoryStatus::Failed,
+            path: Some(path),
             error: Some(error.into()),
             cancelled: false,
         }

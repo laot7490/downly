@@ -39,6 +39,9 @@ export const content = {
     screenshotAlt:
       "Downly app showing the download queue, link input, and format controls",
     appMock: {
+      downloadNav: "Download",
+      historyNav: "History",
+      settingsNav: "Settings",
       headline: "Download a video",
       sub: "Paste a link, pick a format, then add it to the queue.",
       single: "Single",
@@ -50,6 +53,9 @@ export const content = {
       filters: ["All", "Pending", "Active", "Completed", "Failed", "Cancelled"],
       emptyTitle: "Nothing queued",
       empty: "Paste a link to add it to the queue.",
+      sites: ["YouTube", "TikTok", "Instagram", "Twitch", "X", "Kick", "Facebook", "Reddit"],
+      moreSites: "+1,500 more",
+      supportedSites: "View all supported sites",
     },
     flowTitle: "From link to file.",
     flowIntro:
@@ -214,6 +220,9 @@ export const content = {
     screenshotAlt:
       "Downly uygulamasının kuyruk, bağlantı alanı ve format kontrollerini gösteren ekranı",
     appMock: {
+      downloadNav: "İndir",
+      historyNav: "Geçmiş",
+      settingsNav: "Ayarlar",
       headline: "Video indir",
       sub: "Bağlantıyı yapıştır, formatı seç, kuyruğa ekle.",
       single: "Tekli",
@@ -225,6 +234,9 @@ export const content = {
       filters: ["Tümü", "Bekleyen", "Aktif", "Biten", "Başarısız", "İptal"],
       emptyTitle: "Kuyruk boş",
       empty: "Kuyruğa eklemek için bir bağlantı yapıştırın.",
+      sites: ["YouTube", "TikTok", "Instagram", "Twitch", "X", "Kick", "Facebook", "Reddit"],
+      moreSites: "+1.500 daha",
+      supportedSites: "Desteklenen tüm siteleri gör",
     },
     flowTitle: "Bağlantıdan dosyaya.",
     flowIntro:

@@ -30,12 +30,20 @@ export function stop() {
 	return invoke<void>("stop");
 }
 
+export function finishLiveRecording() {
+	return invoke<void>("finish_live_recording");
+}
+
 export function remove(id: string) {
 	return invoke<void>("remove", { id });
 }
 
 export function cancelItem(id: string) {
 	return invoke<void>("cancel_item", { id });
+}
+
+export function reorderQueueItem(id: string, beforeId: string | null) {
+	return invoke<boolean>("reorder_queue_item", { id, beforeId });
 }
 
 export function clearQueue() {

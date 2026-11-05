@@ -2,7 +2,7 @@ use crate::engine::bins::ytdlp_filename;
 use crate::engine::media::{PlaylistSummary, ProbeOutcome};
 use crate::engine::queue::{CookiesBrowser, EnqueueItem, EnqueueOutcome, Snapshot};
 use crate::engine::verify::{YTDLP_EXE_URL, YTDLP_SUMS_URL, install_verified};
-use crate::engine::version::{AppUpdate, parse_release};
+use crate::engine::version::{AppUpdate, parse_release, version_is_newer};
 use crate::net;
 use crate::runner;
 use crate::state::Downly;
@@ -54,6 +54,11 @@ pub fn stop(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn finish_live_recording(app: AppHandle) -> Result<(), String> {
+    runner::finish_live_recording(&app)
+}
+
+#[tauri::command]
 pub fn remove(app: AppHandle, id: String) -> Result<(), String> {
     runner::remove(&app, id)
 }
@@ -61,6 +66,15 @@ pub fn remove(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn cancel_item(app: AppHandle, id: String) -> Result<(), String> {
     runner::cancel_item(&app, id)
+}
+
+#[tauri::command]
+pub fn reorder_queue_item(
+    app: AppHandle,
+    id: String,
+    before_id: Option<String>,
+) -> Result<bool, String> {
+    runner::reorder_queue_item(&app, id, before_id)
 }
 
 #[tauri::command]
@@ -210,8 +224,23 @@ pub async fn check_ytdlp_update(app: AppHandle) -> Result<Option<AppUpdate>, Str
     .await
     .map_err(|err| err.to_string())??
     .version;
-    let text = net::get_text("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest").await?;
-    Ok(parse_release(&text, &current))
+    let text = net::get_text("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest").await;
+    if let Ok(text) = text {
+        if let Some(update) = parse_release(&text, &current) {
+            return Ok(Some(update));
+        }
+    }
+    let latest_url = net::get_final_url("https://github.com/yt-dlp/yt-dlp/releases/latest").await?;
+    let tag = latest_url
+        .strip_prefix("https://github.com/yt-dlp/yt-dlp/releases/tag/")
+        .filter(|tag| !tag.is_empty())
+        .ok_or_else(|| "latest yt-dlp release tag missing".to_string())?;
+    Ok(Some(AppUpdate {
+        version: tag.to_string(),
+        current: current.clone(),
+        newer: version_is_newer(tag, &current),
+        url: Some(latest_url),
+    }))
 }
 
 #[tauri::command]

@@ -9,6 +9,8 @@ pub struct Downly {
     pub engine: Mutex<Engine>,
     pub procs: ProcRegistry,
     pub download_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    pub finish_live_recording: AtomicBool,
+    pub live_capture: Mutex<Option<String>>,
 }
 
 pub fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

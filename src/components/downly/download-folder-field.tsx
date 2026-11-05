@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpenIcon } from "lucide-react";
+import { FolderIcon, FolderOpenIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldTitle } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { setDownloadDir } from "@/lib/api";
 import { formatError } from "@/lib/errors";
@@ -40,16 +39,15 @@ export function DownloadFolderField({ path }: Props) {
 	}
 
 	return (
-		<Field data-invalid={error ? true : undefined}>
-			<FieldTitle>{t("settings.folder")}</FieldTitle>
-			<div className="flex gap-2">
-				<Input readOnly value={path} aria-invalid={error ? true : undefined} className="min-w-0 flex-1" />
-				<Button type="button" variant="outline" disabled={busy} onClick={() => void browse()}>
-					{busy ? <Spinner data-icon="inline-start" /> : <FolderOpenIcon data-icon="inline-start" />}
-					{t("settings.browse")}
+		<Field orientation="horizontal" data-invalid={error ? true : undefined} className="flex-col items-start justify-between gap-3 py-3 sm:flex-row sm:items-center">
+			<FieldTitle id="download-folder-label" className="shrink-0"><FolderIcon className="size-4 text-muted-foreground" />{t("settings.folder")}</FieldTitle>
+			<div className="w-full min-w-0 sm:w-96 sm:shrink-0">
+				<Button type="button" variant="outline" className="h-9 w-full justify-between gap-3" aria-label={`${t("settings.browse")}: ${path}`} title={path} disabled={busy} onClick={() => void browse()}>
+					<span className="min-w-0 truncate">{path || t("settings.browse")}</span>
+					{busy ? <Spinner data-icon="inline-end" /> : <FolderOpenIcon data-icon="inline-end" />}
 				</Button>
+				{error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
 			</div>
-			{error ? <p className="text-sm text-destructive">{error}</p> : null}
 		</Field>
 	);
 }

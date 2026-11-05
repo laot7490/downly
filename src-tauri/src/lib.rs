@@ -29,6 +29,8 @@ pub fn run() {
                 engine: std::sync::Mutex::new(engine),
                 procs: engine::proc::ProcRegistry::new(),
                 download_cancel: std::sync::Mutex::new(None),
+                finish_live_recording: std::sync::atomic::AtomicBool::new(false),
+                live_capture: std::sync::Mutex::new(None),
             });
             Ok(())
         })
@@ -39,8 +41,10 @@ pub fn run() {
             commands::update_queue_metadata,
             commands::start,
             commands::stop,
+            commands::finish_live_recording,
             commands::remove,
             commands::cancel_item,
+            commands::reorder_queue_item,
             commands::clear_queue,
             commands::state,
             commands::set_download_dir,

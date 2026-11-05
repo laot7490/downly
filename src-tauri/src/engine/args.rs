@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::engine::filename::OUTPUT_TEMPLATE;
-use crate::engine::format::{Selection, clip_args, format_args, valid_format_id};
+use crate::engine::format::{LiveMode, Selection, clip_args, format_args, valid_format_id};
 
 pub fn probe_video_args(
     url: &str,
@@ -45,6 +45,7 @@ pub fn download_args(
     cookies_browser: Option<&str>,
     cookies_file: Option<&Path>,
     duplicate_suffix: Option<&str>,
+    live_mode: Option<LiveMode>,
 ) -> Result<Vec<String>, String> {
     if let Some(format_id) = selection.format_id()
         && !valid_format_id(format_id)
@@ -72,7 +73,15 @@ pub fn download_args(
         "after_move:%(filepath)s".into(),
     ];
     args.extend(format_args(selection));
-    args.extend(clip_args(selection)?);
+    if live_mode.is_some() {
+        args.push("--no-part".into());
+    }
+    if live_mode == Some(LiveMode::FromStart) {
+        args.push("--live-from-start".into());
+    }
+    if live_mode.is_none() {
+        args.extend(clip_args(selection)?);
+    }
     args.push("--".into());
     args.push(url.into());
     Ok(with_options(
@@ -120,7 +129,7 @@ pub fn version_args() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::download_args;
-    use crate::engine::format::{Preset, Selection};
+    use crate::engine::format::{LiveMode, Preset, Selection};
     use std::path::Path;
 
     #[test]
@@ -138,6 +147,7 @@ mod tests {
             "https://www.youtube.com/watch?v=abc",
             Some(Path::new("D:/bin/deno.exe")),
             Some("firefox"),
+            None,
             None,
             None,
         )
@@ -168,7 +178,9 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some("copy-id"),
+            None,
         )
         .unwrap();
         assert!(duplicate_args.windows(2).any(|pair| {
@@ -187,6 +199,21 @@ mod tests {
         assert!(!joined.contains("libx264"));
         assert!(!joined.contains("-c:v"));
         assert!(!joined.contains("--convert-thumbnails"));
+
+        let live_args = download_args(
+            &selection,
+            Path::new("D:/Downloads/Downly"),
+            Path::new("D:/resources"),
+            "https://www.youtube.com/watch?v=live",
+            None,
+            None,
+            None,
+            None,
+            Some(LiveMode::FromStart),
+        )
+        .unwrap();
+        assert!(live_args.iter().any(|arg| arg == "--no-part"));
+        assert!(live_args.iter().any(|arg| arg == "--live-from-start"));
     }
 
     #[test]

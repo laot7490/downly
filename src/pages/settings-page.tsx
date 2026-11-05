@@ -4,10 +4,10 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
-import { CheckIcon, CircleHelpIcon } from "lucide-react";
+import { CircleHelpIcon, FileIcon, GlobeIcon, PaletteIcon, CookieIcon, DownloadIcon, MonitorIcon, SunIcon, MoonIcon, CheckIcon, CircleAlertIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Field, FieldGroup, FieldTitle } from "@/components/ui/field";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldTitle } from "@/components/ui/field";
 import { DownloadFolderField } from "@/components/downly/download-folder-field";
 import { PageShell } from "@/components/downly/page-shell";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -24,6 +24,7 @@ import type { AppUpdate, CookiesBrowser, Snapshot } from "@/lib/downly";
 
 const languages: Language[] = ["en", "tr"];
 const themes: ThemeChoice[] = ["system", "light", "dark"];
+const themeIcons = { system: MonitorIcon, light: SunIcon, dark: MoonIcon, CheckIcon, CircleAlertIcon };
 
 type Props = {
 	snapshot: Snapshot;
@@ -38,6 +39,8 @@ export function SettingsPage({ snapshot }: Props) {
 	const [appUpdate, setAppUpdate] = useState<Update | null>(null);
 	const [ytdlpUpdate, setYtdlpUpdate] = useState<AppUpdate | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [appCheckFailed, setAppCheckFailed] = useState(false);
+	const [ytdlpCheckFailed, setYtdlpCheckFailed] = useState(false);
 	const [appBusy, setAppBusy] = useState(false);
 	const [appUpdateInstalling, setAppUpdateInstalling] = useState(false);
 	const [appUpdateProgress, setAppUpdateProgress] = useState<number | null>(null);
@@ -51,16 +54,18 @@ export function SettingsPage({ snapshot }: Props) {
 		void Promise.all([
 			appVersion().catch(() => ""),
 			ytdlpInfo().catch(() => null),
-			check().catch(() => null),
-			checkYtdlpUpdate().catch(() => null),
+			check().then((update) => ({ update, failed: false }), () => ({ update: null, failed: true })),
+			checkYtdlpUpdate().then((update) => ({ update, failed: false }), () => ({ update: null, failed: true })),
 		]).then(([appVer, info, app, ytdlpCheck]) => {
 			if (cancelled) {
 				return;
 			}
 			setVersion(appVer);
 			setYtdlp(info?.version ?? "");
-			setAppUpdate(app);
-			setYtdlpUpdate(ytdlpCheck);
+			setAppUpdate(app.update);
+			setYtdlpUpdate(ytdlpCheck.update);
+			setAppCheckFailed(app.failed);
+			setYtdlpCheckFailed(ytdlpCheck.failed);
 			setLoading(false);
 		});
 		return () => {
@@ -129,96 +134,131 @@ export function SettingsPage({ snapshot }: Props) {
 
 	return (
 		<PageShell>
-			<div className="flex flex-col gap-1">
+			<header className="flex flex-col gap-1 pb-1">
 				<h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("settings.title")}</h1>
 				<p className="text-sm text-muted-foreground">{t("settings.sub")}</p>
-			</div>
-			<FieldGroup>
-				<Field>
-					<FieldTitle id="language-label">{t("settings.language")}</FieldTitle>
-					<ToggleGroup
-						aria-labelledby="language-label"
-						variant="outline"
-						spacing={2}
-						value={[language]}
-						onValueChange={(value) => {
+			</header>
+			<section aria-labelledby="preferences-heading">
+				<h2 id="preferences-heading" className="mb-2 text-xs font-medium text-muted-foreground">{t("settings.preferences")}</h2>
+				<div className="divide-y divide-border/60 rounded-xl border border-border/70 px-4">
+					<Field orientation="horizontal" className="flex-col items-start justify-between gap-3 py-3 sm:flex-row sm:items-center">
+						<FieldTitle id="language-label"><GlobeIcon className="size-4 text-muted-foreground" />{t("settings.language")}</FieldTitle>
+						<ToggleGroup className="rounded-lg bg-muted/60 p-1" aria-labelledby="language-label" size="sm" spacing={1} value={[language]} onValueChange={(value) => {
 							const next = value[0];
-							if (next === "en" || next === "tr") {
-								chooseLanguage(next);
-							}
+							if (next === "en" || next === "tr") chooseLanguage(next);
 						}}>
-						{languages.map((item) => (
-							<ToggleGroupItem key={item} value={item}>
-								{t(`settings.languages.${item}`)}
-							</ToggleGroupItem>
-						))}
-					</ToggleGroup>
-				</Field>
-				<Field>
-					<FieldTitle id="theme-label">{t("settings.theme")}</FieldTitle>
-					<ToggleGroup
-						aria-labelledby="theme-label"
-						variant="outline"
-						spacing={2}
-						value={[theme]}
-						onValueChange={(value) => {
+							{languages.map((item) => <ToggleGroupItem key={item} value={item} className="aria-pressed:bg-background aria-pressed:shadow-xs">{t(`settings.languages.${item}`)}</ToggleGroupItem>)}
+						</ToggleGroup>
+					</Field>
+					<Field orientation="horizontal" className="flex-col items-start justify-between gap-3 py-3 sm:flex-row sm:items-center">
+						<FieldTitle id="theme-label"><PaletteIcon className="size-4 text-muted-foreground" />{t("settings.theme")}</FieldTitle>
+						<ToggleGroup className="rounded-lg bg-muted/60 p-1" aria-labelledby="theme-label" size="sm" spacing={1} value={[theme]} onValueChange={(value) => {
 							const next = value[0];
-							if (next === "system" || next === "light" || next === "dark") {
-								chooseTheme(next);
-							}
+							if (next === "system" || next === "light" || next === "dark") chooseTheme(next);
 						}}>
-						{themes.map((item) => (
-							<ToggleGroupItem key={item} value={item}>
-								{t(`settings.themes.${item}`)}
-							</ToggleGroupItem>
-						))}
-					</ToggleGroup>
-				</Field>
-				<DownloadFolderField path={snapshot.settings.download_dir} />
-				<Field>
-					<FieldTitle id="cookies-browser-label">
-						{t("settings.cookiesBrowser")}
-						<Tooltip>
-							<TooltipTrigger render={<button type="button" aria-label={t("settings.cookiesBrowserInfo")} className="text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full" />}>
-								<CircleHelpIcon className="size-3.5" aria-hidden="true" />
-							</TooltipTrigger>
-							<TooltipContent>{t("settings.cookiesBrowserTooltip")}</TooltipContent>
-						</Tooltip>
-					</FieldTitle>
-					<Select
-						items={cookiesBrowserItems}
-						value={snapshot.settings.cookies_browser}
-						disabled={cookiesBusy}
-						onValueChange={(value) => {
-							if (value === "manual") {
-								setCookieDialogOpen(true);
-							} else if (value === "disabled" || value === "firefox") {
+							{themes.map((item) => {
+								const Icon = themeIcons[item];
+								return <ToggleGroupItem key={item} value={item} className="gap-1.5 aria-pressed:bg-background aria-pressed:shadow-xs"><Icon className="size-3.5" aria-hidden="true" />{t(`settings.themes.${item}`)}</ToggleGroupItem>;
+							})}
+						</ToggleGroup>
+					</Field>
+				</div>
+			</section>
+			<section aria-labelledby="downloads-heading">
+				<h2 id="downloads-heading" className="mb-2 text-xs font-medium text-muted-foreground">{t("settings.downloads")}</h2>
+				<div className="divide-y divide-border/60 rounded-xl border border-border/70 px-4">
+					<DownloadFolderField path={snapshot.settings.download_dir} />
+					<Field orientation="horizontal" className="flex-col items-start justify-between gap-3 py-3 sm:flex-row sm:items-center">
+						<FieldTitle id="cookies-browser-label"><CookieIcon className="size-4 text-muted-foreground" />
+							{t("settings.cookiesBrowser")}
+							<Tooltip>
+								<TooltipTrigger render={<button type="button" aria-label={t("settings.cookiesBrowserInfo")} className="rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />}>
+									<CircleHelpIcon className="size-3.5" aria-hidden="true" />
+								</TooltipTrigger>
+								<TooltipContent>{t("settings.cookiesBrowserTooltip")}</TooltipContent>
+							</Tooltip>
+						</FieldTitle>
+						<div className="w-full min-w-0 sm:w-96 sm:flex-none">
+							<Select items={cookiesBrowserItems} value={snapshot.settings.cookies_browser} disabled={cookiesBusy} onValueChange={(value) => {
+							if (value === "manual") setCookieDialogOpen(true);
+							else if (value === "disabled" || value === "firefox") {
 								setCookiesBusy(true);
-								void setCookiesBrowser(value as CookiesBrowser)
-									.catch((err) => toastError(err, t("settings.cookiesBrowserFailed")))
-									.finally(() => setCookiesBusy(false));
+								void setCookiesBrowser(value as CookiesBrowser).catch((err) => toastError(err, t("settings.cookiesBrowserFailed"))).finally(() => setCookiesBusy(false));
 							}
+							}}>
+								<SelectTrigger aria-labelledby="cookies-browser-label" className="!h-9 !w-full">
+									{cookiesBusy ? <Spinner data-icon="inline-start" /> : null}
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectGroup>{cookiesBrowsers.map((browser) => <SelectItem key={browser} value={browser}>{t(`settings.cookiesBrowsers.${browser}`)}</SelectItem>)}</SelectGroup>
+								</SelectContent>
+							</Select>
+							{snapshot.settings.cookies_browser === "manual" ? <p className="text-xs text-muted-foreground">
+								{t("settings.cookiesUpdated", { date: snapshot.settings.cookies_updated_at ? new Date(snapshot.settings.cookies_updated_at * 1000).toLocaleDateString() : "" })}
+								<Button type="button" variant="link" size="sm" className="h-auto px-1" disabled={cookiesBusy} onClick={() => setCookieDialogOpen(true)}>{t("settings.cookiesReplace")}</Button>
+							</p> : null}
+						</div>
+					</Field>
+				</div>
+			</section>
+			<section aria-labelledby="updates-heading">
+				<h2 id="updates-heading" className="mb-2 text-xs font-medium text-muted-foreground">{t("settings.updateTitle")}</h2>
+				<div className="divide-y divide-border/60 rounded-xl border border-border/70 px-4">
+					<div className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+						<div className="min-w-0">
+							<div className="flex flex-wrap items-center gap-2">
+								<DownloadIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+								<h3 className="text-sm font-medium">{t("settings.appVersion")}</h3>
+								<Badge variant="outline">{version || "—"}</Badge>
+							</div>
+							<div role="status" className="mt-2 pl-6">
+								<Badge variant={loading ? "secondary" : appCheckFailed ? "destructive" : appNewer ? "secondary" : "success"}>
+									{loading ? <Spinner /> : appCheckFailed ? <CircleAlertIcon /> : appNewer ? <DownloadIcon /> : <CheckIcon />}
+									{loading ? t("settings.updateChecking") : appCheckFailed ? t("settings.updateCheckFailed") : appNewer ? t("settings.updateFound", { version: appUpdate?.version }) : t("settings.updateNone")}
+								</Badge>
+							</div>
+						</div>
+						{appNewer ? <Button type="button" size="sm" className="sm:justify-self-end" disabled={appBusy || downloadRunning} onClick={() => void installAppUpdate()}>
+							{appBusy ? <Spinner data-icon="inline-start" /> : null}
+							{downloadRunning ? t("settings.updateWaitForDownloads") : appBusy ? appUpdateInstalling ? t("settings.updateInstalling") : appUpdateProgress == null ? t("settings.updateDownloading") : t("settings.updateProgress", { percent: appUpdateProgress }) : t("settings.updateAction")}
+						</Button> : null}
+					</div>
+					<div className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+						<div className="min-w-0">
+							<div className="flex flex-wrap items-center gap-2">
+								<FileIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+								<h3 className="text-sm font-medium">{t("settings.ytdlp")}</h3>
+								<Badge variant="outline">{ytdlp || t("settings.ytdlpUnknown")}</Badge>
+							</div>
+							<div role="status" className="mt-2 pl-6">
+								<Badge variant={loading ? "secondary" : ytdlpCheckFailed ? "destructive" : ytdlpNewer ? "secondary" : "success"}>
+									{loading ? <Spinner /> : ytdlpCheckFailed ? <CircleAlertIcon /> : ytdlpNewer ? <DownloadIcon /> : <CheckIcon />}
+									{loading ? t("settings.updateChecking") : ytdlpCheckFailed ? t("settings.updateCheckFailed") : ytdlpNewer ? t("settings.ytdlpFound", { version: ytdlpUpdate?.version }) : t("settings.updateNone")}
+								</Badge>
+							</div>
+						</div>
+						{ytdlpNewer ? <Button type="button" size="sm" className="sm:justify-self-end" disabled={ytdlpBusy} onClick={() => {
+							setYtdlpBusy(true);
+							void updateYtdlp()
+								.then(async (next) => {
+									setYtdlp(next);
+									const info = await ytdlpInfo().catch(() => null);
+									if (info) setYtdlp(info.version);
+									const result = await checkYtdlpUpdate().then((update) => ({ update, failed: false }), () => ({ update: null, failed: true }));
+									setYtdlpUpdate(result.update);
+									setYtdlpCheckFailed(result.failed);
+									toast.add({ title: t("settings.ytdlpUpdated", { version: info?.version || next }), type: "success" });
+								})
+								.catch((err) => toastError(err, t("settings.ytdlpUpdateFailed")))
+								.finally(() => setYtdlpBusy(false));
 						}}>
-						<SelectTrigger aria-labelledby="cookies-browser-label" className="w-full sm:w-64">
-							{cookiesBusy ? <Spinner data-icon="inline-start" /> : null}
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectGroup>
-								{cookiesBrowsers.map((browser) => (
-									<SelectItem key={browser} value={browser}>{t(`settings.cookiesBrowsers.${browser}`)}</SelectItem>
-								))}
-							</SelectGroup>
-						</SelectContent>
-					</Select>
-					{snapshot.settings.cookies_browser === "manual" ? (
-						<p className="text-xs text-muted-foreground">
-							{t("settings.cookiesUpdated", { date: snapshot.settings.cookies_updated_at ? new Date(snapshot.settings.cookies_updated_at * 1000).toLocaleDateString() : "" })}
-							<Button type="button" variant="link" size="sm" className="h-auto px-1" disabled={cookiesBusy} onClick={() => setCookieDialogOpen(true)}>{t("settings.cookiesReplace")}</Button>
-						</p>
-					) : null}
-				</Field>
-			</FieldGroup>
+							{ytdlpBusy ? <Spinner data-icon="inline-start" /> : null}
+							{t("settings.updateAction")}
+						</Button> : null}
+					</div>
+				</div>
+			</section>
 			<Dialog open={cookieDialogOpen} onOpenChange={setCookieDialogOpen}>
 				<DialogContent>
 					<DialogHeader>
@@ -232,79 +272,7 @@ export function SettingsPage({ snapshot }: Props) {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-			<div className="grid items-start gap-4 sm:grid-cols-2">
-				<Card>
-					<CardHeader>
-						<CardTitle>{t("settings.appVersion")}</CardTitle>
-						<CardDescription>{version || "—"}</CardDescription>
-					</CardHeader>
-					<CardFooter>
-						<Button
-							type="button"
-							variant="outline"
-							disabled={loading || appBusy || !appNewer || downloadRunning}
-							onClick={() => void installAppUpdate()}>
-							{loading || appBusy ? (
-								<Spinner data-icon="inline-start" />
-							) : appNewer ? null : (
-								<CheckIcon data-icon="inline-start" />
-							)}
-							{downloadRunning
-								? t("settings.updateWaitForDownloads")
-								: appBusy
-								? appUpdateInstalling
-									? t("settings.updateInstalling")
-									: appUpdateProgress == null
-										? t("settings.updateDownloading")
-										: t("settings.updateProgress", { percent: appUpdateProgress })
-								: appNewer
-									? t("settings.updateAction")
-									: t("settings.upToDate")}
-						</Button>
-					</CardFooter>
-				</Card>
-				<Card>
-					<CardHeader>
-						<CardTitle>{t("settings.ytdlp")}</CardTitle>
-					<CardDescription>{ytdlp || t("settings.ytdlpUnknown")}</CardDescription>
-					</CardHeader>
-					<CardFooter>
-						<Button
-							type="button"
-							variant="outline"
-							disabled={loading || ytdlpBusy || !ytdlpNewer}
-							onClick={() => {
-								setYtdlpBusy(true);
-								void updateYtdlp()
-									.then(async (next) => {
-										setYtdlp(next);
-										const info = await ytdlpInfo().catch(() => null);
-										if (info) {
-											setYtdlp(info.version);
-										}
-										const check = await checkYtdlpUpdate().catch(() => null);
-										setYtdlpUpdate(check);
-										toast.add({
-											title: t("settings.ytdlpUpdated", { version: info?.version || next }),
-											type: "success",
-										});
-									})
-									.catch((err) => {
-										toastError(err, t("settings.ytdlpUpdateFailed"));
-									})
-									.finally(() => setYtdlpBusy(false));
-							}}>
-							{loading || ytdlpBusy ? (
-								<Spinner data-icon="inline-start" />
-							) : ytdlpNewer ? null : (
-								<CheckIcon data-icon="inline-start" />
-							)}
-							{ytdlpNewer ? t("settings.updateAction") : t("settings.upToDate")}
-						</Button>
-					</CardFooter>
-				</Card>
-			</div>
-			<p className="pt-4 text-center text-sm text-muted-foreground">
+			<p className="text-right text-xs text-muted-foreground">
 				made with <span className="text-red-500">❤️</span> laot
 			</p>
 		</PageShell>

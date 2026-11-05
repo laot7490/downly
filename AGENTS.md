@@ -2,33 +2,34 @@
 
 ## Project Structure & Module Organization
 
-`src/` contains the React and TypeScript frontend: `pages/` for screens, `components/` for shared and UI components, `hooks/` for reusable stateful logic, `lib/` for helpers and API wrappers, and `i18n/locales/` for English and Turkish strings. Static frontend assets live in `src/assets/` and `public/`. `src-tauri/src/` contains the Rust application, commands, download engine, and state; Tauri configuration and permissions are in `src-tauri/`. `scripts/fetch-binaries.ps1` retrieves the external downloader and media tools. There is no dedicated test directory currently.
+Downly is a Tauri 2 Windows downloader. The desktop React/TypeScript frontend lives in `src/`; Rust commands and backend logic are in `src-tauri/src/`. Tauri permissions, capabilities, icons, and bundled resources are under `src-tauri/`. The separate product website is in `web/`, with its React pages and components under `web/src/`. Shared build and binary-fetch scripts live in `scripts/`. There is no dedicated test directory today.
 
 ## Build, Test, and Development Commands
 
-Use pnpm, Node.js, Rust, and the Windows Tauri prerequisites described in the README.
+Run commands from the repository root unless noted.
 
-- `pnpm install` installs JavaScript dependencies.
-- `powershell -ExecutionPolicy Bypass -File scripts/fetch-binaries.ps1` downloads yt-dlp and FFmpeg into `src-tauri/resources`.
-- `pnpm tauri dev` runs the desktop app in development.
-- `pnpm build` runs TypeScript checking and builds the frontend with Vite.
-- `pnpm tauri build` creates a production desktop build.
-- `pnpm preview` serves the built frontend for local inspection.
+- `pnpm install` installs desktop dependencies.
+- `pnpm dev` starts the Vite frontend; `pnpm tauri dev` runs the full desktop app.
+- `pnpm build` type-checks and builds the frontend.
+- `pnpm tauri build` packages the desktop application.
+- `powershell -ExecutionPolicy Bypass -File scripts/fetch-binaries.ps1` fetches the external yt-dlp and FFmpeg binaries needed by the app.
+- `cargo check` from `src-tauri/` checks the Rust backend.
+- For the website, use `pnpm install` and `pnpm build` in `web/`; `pnpm lint` runs its ESLint checks.
 
-No automated test or lint command is configured; validate changes with the relevant build and manual app checks.
+The root package does not define automated tests or a lint script. No coverage requirement is configured; run the relevant build or check after changing code.
 
 ## Coding Style & Naming Conventions
 
-Follow the existing TypeScript and Rust style. Use descriptive kebab-case filenames (for example, `queue-page.tsx`); use PascalCase for React components and types, and camelCase for functions and values. Keep UI changes consistent with the existing shadcn components and Tailwind utilities. Keep backend responsibilities in Rust and expose frontend operations through the established Tauri command/API layers. Update both locale JSON files when adding user-facing text.
+Use TypeScript/TSX for frontend code and Rust for Tauri backend code. Follow the surrounding file’s formatting and component conventions; use descriptive, lowercase kebab-case filenames for UI modules (for example, `queue-page.tsx`). Keep Tauri commands, frontend invoke calls, and capability permissions aligned when adding backend features. Do not commit generated build output or downloaded binaries.
 
 ## Testing Guidelines
 
-There is no configured test framework or coverage threshold. For frontend changes, run `pnpm build`; for Rust changes, run `cargo check` from `src-tauri/`. For behavior changes, also exercise the affected flow in `pnpm tauri dev`, including relevant queue, history, or settings states.
+There is no configured test framework at the root. For frontend changes, run `pnpm build`; for Rust changes, run `cargo check` in `src-tauri/`. For changes that affect desktop behavior, launch with `pnpm tauri dev` and verify the affected flow manually when practical. Website changes should also pass `pnpm lint` from `web/`.
 
 ## Commit & Pull Request Guidelines
 
-This checkout has no accessible Git history to establish a commit convention. Use a short, imperative summary (for example, `Fix queue cancellation`). Pull requests should explain the user-visible change, list validation performed, link related issues when available, and include screenshots for UI changes. Call out any changes to bundled binaries or Tauri permissions.
+Recent commits use short imperative subjects, sometimes with a version bump (for example, “Improve download queue controls and bump to 0.5.1”). Keep subjects concise and describe the user-visible change. A pull request should explain its impact, list relevant validation performed, and include screenshots for visible UI changes. Link related issues when applicable.
 
-## Security & Configuration Tips
+## Security & Configuration
 
-Do not commit downloaded tool binaries, signing credentials, or local build output. The binary fetch script obtains yt-dlp and FFmpeg; review source and licensing before changing those inputs. Keep Tauri capabilities and permissions limited to the features the app needs.
+Keep updater signing secrets and local credentials out of commits. Downloaded tools belong in `src-tauri/resources` and are intentionally fetched locally. Review Tauri capability changes carefully because they grant frontend access to native APIs.

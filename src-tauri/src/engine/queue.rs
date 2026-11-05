@@ -1,5 +1,5 @@
 use crate::engine::classify::{RejectReason, extract_video_id, screen_batch};
-use crate::engine::format::Selection;
+use crate::engine::format::{LiveMode, Selection};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -65,6 +65,8 @@ pub struct Item {
     pub thumbnail: Option<String>,
     pub selection: Selection,
     #[serde(default)]
+    pub live_mode: Option<LiveMode>,
+    #[serde(default)]
     pub preflight_checked: bool,
     #[serde(default)]
     pub duration_seconds: Option<u64>,
@@ -80,6 +82,8 @@ pub struct QueueEntry {
     pub title: String,
     pub thumbnail: Option<String>,
     pub selection: Selection,
+    #[serde(default)]
+    pub live_mode: Option<LiveMode>,
     pub status: QueueStatus,
     #[serde(default)]
     pub duration_seconds: Option<u64>,
@@ -97,6 +101,8 @@ pub struct HistoryItem {
     pub path: Option<String>,
     pub error: Option<String>,
     pub selection: Selection,
+    #[serde(default)]
+    pub live_mode: Option<LiveMode>,
     pub status: HistoryStatus,
     pub finished_at: u64,
     #[serde(default)]
@@ -132,6 +138,8 @@ pub struct EnqueueItem {
     #[serde(default)]
     pub thumbnail: Option<String>,
     pub selection: Selection,
+    #[serde(default)]
+    pub live_mode: Option<LiveMode>,
     #[serde(default)]
     pub preflight_checked: bool,
     #[serde(default)]
@@ -206,7 +214,93 @@ impl Engine {
         for item in items {
             outcomes.push(self.enqueue_one(item));
         }
+        let mut new_live_ids = Vec::new();
+        let mut new_regular_ids = Vec::new();
+        for outcome in &outcomes {
+            let id = match outcome {
+                EnqueueOutcome::Added { id, .. } => id,
+                _ => continue,
+            };
+            if self
+                .pending
+                .iter()
+                .any(|item| item.id == id.as_str() && item.live_mode.is_some())
+            {
+                new_live_ids.push(id.clone());
+            } else {
+                new_regular_ids.push(id.clone());
+            }
+        }
+        let mut live = Vec::new();
+        let mut regular = Vec::new();
+        for item in self.pending.drain(..) {
+            if item.live_mode.is_some() {
+                live.push(item);
+            } else {
+                regular.push(item);
+            }
+        }
+        prioritize_new_items(&mut live, &new_live_ids);
+        prioritize_new_items(&mut regular, &new_regular_ids);
+        self.pending = live;
+        self.pending.extend(regular);
         outcomes
+    }
+
+    pub fn reorder_pending(&mut self, id: &str, before_id: Option<&str>) -> Result<bool, String> {
+        let Some(from_index) = self.pending.iter().position(|item| item.id == id) else {
+            return Err("not found".into());
+        };
+        if before_id == Some(id) {
+            return Ok(false);
+        }
+        let is_live = self.pending[from_index].live_mode.is_some();
+        let before_index = if let Some(before_id) = before_id {
+            let Some(index) = self.pending.iter().position(|item| item.id == before_id) else {
+                return Err("not found".into());
+            };
+            if self.pending[index].live_mode.is_some() != is_live {
+                return Err("items cannot move between priority groups".into());
+            }
+            index
+        } else {
+            self.pending
+                .iter()
+                .rposition(|item| item.live_mode.is_some() == is_live)
+                .map(|index| index + 1)
+                .unwrap_or_else(|| {
+                    if is_live {
+                        0
+                    } else {
+                        self.pending.len()
+                    }
+                })
+        };
+        if before_index == from_index || before_index == from_index + 1 {
+            return Ok(false);
+        }
+        let item = self.pending.remove(from_index);
+        let target_index = if before_index > from_index {
+            before_index - 1
+        } else {
+            before_index
+        };
+        self.pending.insert(target_index, item);
+        Ok(true)
+    }
+
+    pub fn normalize_pending_order(&mut self) {
+        let mut live = Vec::new();
+        let mut regular = Vec::new();
+        for item in self.pending.drain(..) {
+            if item.live_mode.is_some() {
+                live.push(item);
+            } else {
+                regular.push(item);
+            }
+        }
+        self.pending = live;
+        self.pending.extend(regular);
     }
 
     pub fn begin(&mut self) -> bool {
@@ -283,6 +377,7 @@ impl Engine {
             path,
             error,
             selection: item.selection,
+            live_mode: item.live_mode,
             status,
             finished_at: now_secs(),
             duration_seconds: item.duration_seconds,
@@ -378,17 +473,18 @@ impl Engine {
             .cloned()
             .collect::<Vec<_>>();
         let mut retried = 0;
-        for entry in failed {
+        for entry in failed.into_iter().rev() {
             if self.contains_identity(&entry.video_id, &entry.url) {
                 continue;
             }
-            self.pending.push(Item {
+            self.insert_pending(Item {
                 id: new_id(),
                 video_id: entry.video_id,
                 url: entry.url,
                 title: entry.title,
                 thumbnail: entry.thumbnail,
                 selection: entry.selection,
+                live_mode: entry.live_mode,
                 preflight_checked: false,
                 duration_seconds: entry.duration_seconds,
                 size_bytes: None,
@@ -408,13 +504,14 @@ impl Engine {
         if self.contains_identity(&entry.video_id, &entry.url) {
             return Ok(false);
         }
-        self.pending.push(Item {
+        self.insert_pending(Item {
             id: new_id(),
             video_id: entry.video_id,
             url: entry.url,
             title: entry.title,
             thumbnail: entry.thumbnail,
             selection: entry.selection,
+            live_mode: entry.live_mode,
             preflight_checked: false,
             duration_seconds: entry.duration_seconds,
             size_bytes: None,
@@ -433,13 +530,14 @@ impl Engine {
         if self.contains_identity(&entry.video_id, &entry.url) {
             return Ok(false);
         }
-        self.pending.push(Item {
+        self.insert_pending(Item {
             id: new_id(),
             video_id: entry.video_id,
             url: entry.url,
             title: entry.title,
             thumbnail: entry.thumbnail,
             selection: entry.selection,
+            live_mode: entry.live_mode,
             preflight_checked: false,
             duration_seconds: entry.duration_seconds,
             size_bytes: None,
@@ -538,13 +636,14 @@ impl Engine {
         if self.contains_identity(&entry.video_id, &entry.url) {
             return Err("already queued".into());
         }
-        self.pending.push(Item {
+        self.insert_pending(Item {
             id: new_id(),
             video_id: entry.video_id,
             url: entry.url,
             title: entry.title,
             thumbnail: entry.thumbnail,
             selection: entry.selection,
+            live_mode: entry.live_mode,
             preflight_checked: false,
             duration_seconds: entry.duration_seconds,
             size_bytes: None,
@@ -616,18 +715,32 @@ impl Engine {
         } else {
             item.title.trim().to_string()
         };
-        self.pending.push(Item {
+        self.insert_pending(Item {
             id: id.clone(),
             video_id: video_id.clone(),
             url,
             title,
             thumbnail: item.thumbnail,
             selection: item.selection,
+            live_mode: item.live_mode,
             preflight_checked: item.preflight_checked,
             duration_seconds: item.duration_seconds,
             size_bytes: item.size_bytes,
         });
         EnqueueOutcome::Added { id, video_id }
+    }
+
+    fn insert_pending(&mut self, item: Item) {
+        let is_live = item.live_mode.is_some();
+        let index = if is_live {
+            0
+        } else {
+            self.pending
+                .iter()
+                .position(|pending| pending.live_mode.is_none())
+                .unwrap_or(self.pending.len())
+        };
+        self.pending.insert(index, item);
     }
 
     fn contains_identity(&self, video_id: &str, url: &str) -> bool {
@@ -638,6 +751,17 @@ impl Engine {
                 item.url == url || (!video_id.is_empty() && item.video_id == video_id)
             })
     }
+}
+
+fn prioritize_new_items(items: &mut Vec<Item>, new_ids: &[String]) {
+    let mut prioritized = Vec::with_capacity(items.len());
+    for id in new_ids {
+        if let Some(index) = items.iter().position(|item| item.id == id.as_str()) {
+            prioritized.push(items.remove(index));
+        }
+    }
+    prioritized.append(items);
+    *items = prioritized;
 }
 
 fn fill_metadata(
@@ -695,6 +819,7 @@ fn entry_from(item: &Item, status: QueueStatus) -> QueueEntry {
         title: item.title.clone(),
         thumbnail: item.thumbnail.clone(),
         selection: item.selection.clone(),
+        live_mode: item.live_mode,
         status,
         duration_seconds: item.duration_seconds,
         size_bytes: item.size_bytes,
@@ -767,6 +892,7 @@ mod tests {
                 label: String::new(),
                 clip: None,
             },
+            live_mode: None,
             preflight_checked: false,
             duration_seconds: None,
             size_bytes: None,
@@ -814,6 +940,105 @@ mod tests {
                 reason: RejectReason::Channel,
             }
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn new_items_prepend_while_batch_order_and_live_priority_are_preserved() {
+        let dir = scratch();
+        let mut engine = Engine::new(dir.to_string_lossy().to_string());
+        engine.enqueue(
+            vec![
+                item("old-a", "https://youtube.com/watch?v=old-a"),
+                item("old-b", "https://youtube.com/watch?v=old-b"),
+            ],
+            &dir,
+        );
+        engine.enqueue(
+            vec![
+                item("new-a", "https://youtube.com/watch?v=new-a"),
+                item("new-b", "https://youtube.com/watch?v=new-b"),
+            ],
+            &dir,
+        );
+        engine.enqueue(vec![item("latest", "https://youtube.com/watch?v=latest")], &dir);
+        let regular_a = item("mixed-a", "https://youtube.com/watch?v=mixed-a");
+        let mut live_a = item("live-a", "https://youtube.com/watch?v=live-a");
+        live_a.live_mode = Some(LiveMode::FromNow);
+        let regular_b = item("mixed-b", "https://youtube.com/watch?v=mixed-b");
+        let mut live_b = item("live-b", "https://youtube.com/watch?v=live-b");
+        live_b.live_mode = Some(LiveMode::FromStart);
+        engine.enqueue(vec![regular_a, live_a, regular_b, live_b], &dir);
+
+        let ids = engine
+            .pending
+            .iter()
+            .map(|item| item.video_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            [
+                "live-a", "live-b", "mixed-a", "mixed-b", "latest", "new-a", "new-b", "old-a", "old-b"
+            ]
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reorder_pending_is_grouped_and_controls_download_order() {
+        let dir = scratch();
+        let mut engine = Engine::new(dir.to_string_lossy().to_string());
+        engine.enqueue(
+            vec![
+                item("a", "https://youtube.com/watch?v=a"),
+                item("b", "https://youtube.com/watch?v=b"),
+                item("c", "https://youtube.com/watch?v=c"),
+            ],
+            &dir,
+        );
+        let id_a = engine.pending[0].id.clone();
+        let id_b = engine.pending[1].id.clone();
+        let id_c = engine.pending[2].id.clone();
+        assert!(engine.reorder_pending(&id_c, Some(&id_a)).unwrap());
+        assert_eq!(
+            engine
+                .pending
+                .iter()
+                .map(|item| item.video_id.as_str())
+                .collect::<Vec<_>>(),
+            ["c", "a", "b"]
+        );
+        assert!(engine.begin());
+        assert_eq!(engine.take_next().unwrap().id, id_c);
+        assert_eq!(engine.pending[0].id, id_a);
+        assert!(engine.reorder_pending(&id_a, None).unwrap());
+        assert_eq!(
+            engine
+                .pending
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            [id_b.as_str(), id_a.as_str()]
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reorder_pending_rejects_active_and_cross_priority_moves() {
+        let dir = scratch();
+        let mut engine = Engine::new(dir.to_string_lossy().to_string());
+        let mut live = item("live", "https://youtube.com/watch?v=live");
+        live.live_mode = Some(LiveMode::FromNow);
+        engine.enqueue(
+            vec![item("regular", "https://youtube.com/watch?v=regular"), live],
+            &dir,
+        );
+        let live_id = engine.pending[0].id.clone();
+        let regular_id = engine.pending[1].id.clone();
+        assert!(engine.reorder_pending(&live_id, Some(&regular_id)).is_err());
+        engine.begin();
+        let active_id = engine.take_next().unwrap().id;
+        assert!(engine.reorder_pending(&active_id, None).is_err());
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -874,6 +1099,7 @@ mod tests {
                 path: None,
                 error: None,
                 selection: selection.clone(),
+                live_mode: None,
                 status: HistoryStatus::Success,
                 finished_at: 1,
                 duration_seconds: None,
@@ -888,6 +1114,7 @@ mod tests {
                 path: None,
                 error: Some("failed".into()),
                 selection,
+                live_mode: None,
                 status: HistoryStatus::Failed,
                 finished_at: 2,
                 duration_seconds: None,
@@ -990,6 +1217,7 @@ mod tests {
             title: "aaa".into(),
             thumbnail: None,
             selection: engine.pending[0].selection.clone(),
+            live_mode: None,
             status: HistoryStatus::Success,
             path: Some(kept.to_string_lossy().to_string()),
             error: None,

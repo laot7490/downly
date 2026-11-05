@@ -14,23 +14,50 @@ struct QueueDisk {
     active: Option<Item>,
     #[serde(default)]
     session: Vec<HistoryItem>,
+    #[serde(default)]
+    order_version: u8,
 }
 
 pub fn load(data_dir: &Path, downloads: &Path) -> Engine {
     let settings = read_settings(data_dir, downloads);
-    let queue = read_json::<QueueDisk>(&data_dir.join("queue.json"));
+    let mut queue = read_json::<QueueDisk>(&data_dir.join("queue.json"));
     let history = read_json::<Vec<HistoryItem>>(&data_dir.join("history.json"));
-    let mut pending = Vec::new();
-    if let Some(active) = queue.active {
-        pending.push(active);
+    let needs_order_migration = queue.order_version == 0;
+    let mut pending = std::mem::take(&mut queue.pending);
+    if needs_order_migration {
+        let mut live = Vec::new();
+        let mut regular = Vec::new();
+        for item in pending.drain(..) {
+            if item.live_mode.is_some() {
+                live.push(item);
+            } else {
+                regular.push(item);
+            }
+        }
+        live.reverse();
+        regular.reverse();
+        pending = live;
+        pending.extend(regular);
     }
-    pending.extend(queue.pending);
+    if let Some(active) = queue.active.take() {
+        let is_live = active.live_mode.is_some();
+        let index = if is_live {
+            0
+        } else {
+            pending
+                .iter()
+                .position(|item| item.live_mode.is_none())
+                .unwrap_or(pending.len())
+        };
+        pending.insert(index, active);
+    }
     let mut engine = Engine::new(settings.download_dir.clone());
     engine.settings = settings;
     engine.pending = pending;
+    engine.normalize_pending_order();
     engine.history = history;
     engine.session = queue.session;
-    if engine.archive_session_all() {
+    if engine.archive_session_all() || needs_order_migration {
         let _ = save(data_dir, &engine);
     }
     engine
@@ -45,6 +72,7 @@ pub fn save(data_dir: &Path, engine: &Engine) -> Result<(), String> {
             .clone()
             .filter(|_| !engine.discard_active_result),
         session: engine.session.clone(),
+        order_version: 1,
     };
     write_json(&data_dir.join("queue.json"), &queue)?;
     write_json(&data_dir.join("history.json"), &engine.history)?;
@@ -163,6 +191,7 @@ mod tests {
                         label: String::new(),
                         clip: None,
                     },
+                    live_mode: None,
                 },
                 EnqueueItem {
                     url: "https://www.youtube.com/watch?v=bbb".into(),
@@ -178,6 +207,7 @@ mod tests {
                         label: String::new(),
                         clip: None,
                     },
+                    live_mode: None,
                 },
             ],
             &files,

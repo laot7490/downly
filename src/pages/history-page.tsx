@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDownIcon, EllipsisVerticalIcon, FolderIcon, LinkIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, EllipsisVerticalIcon, FolderIcon, LinkIcon, RadioIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -108,8 +108,9 @@ export function HistoryPage({ snapshot }: Props) {
 												title={item.title}
 												meta={
 													<div className="flex min-w-0 flex-col gap-1">
-									<div className="flex min-w-0 flex-wrap items-center gap-1.5">
-										<DownloadBadges selection={item.selection} best={best} durationSeconds={item.duration_seconds} sizeBytes={item.size_bytes} />
+												<div className="flex min-w-0 flex-wrap items-center gap-1.5">
+													{item.live_mode != null ? <Badge variant="destructive"><RadioIcon aria-hidden="true" />{t("queue.live")}</Badge> : null}
+													<DownloadBadges selection={item.selection} best={best} durationSeconds={item.live_mode != null ? null : item.duration_seconds} sizeBytes={item.live_mode != null ? null : item.size_bytes} />
 														</div>
 													</div>
 												}

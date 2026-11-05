@@ -39,6 +39,8 @@ pub enum ProbeOutcome {
     Video {
         id: String,
         title: String,
+        #[serde(default)]
+        is_live: bool,
         duration: Option<f64>,
         channel: Option<String>,
         thumbnail: Option<String>,
@@ -60,11 +62,6 @@ pub fn parse_probe(stdout: &str, page_url: &str) -> Result<ProbeOutcome, String>
     let value: Value = serde_json::from_str(json_slice(stdout)).map_err(|err| err.to_string())?;
     if !value.is_object() {
         return Err("unexpected json".into());
-    }
-    if is_live(&value) {
-        return Ok(ProbeOutcome::Rejected {
-            reason: RejectReason::Live,
-        });
     }
     if is_playlist_json(&value) {
         let summary = playlist_from(&value, page_url);
@@ -104,6 +101,7 @@ fn video_from(value: &Value) -> Result<ProbeOutcome, String> {
     Ok(ProbeOutcome::Video {
         id,
         title,
+        is_live: is_live(value),
         duration: opt_f64(value, "duration"),
         channel: opt_string(value, "channel")
             .or_else(|| opt_string(value, "uploader"))
@@ -306,7 +304,6 @@ fn json_slice(stdout: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::{ProbeOutcome, parse_probe};
-    use crate::engine::classify::RejectReason;
 
     #[test]
     fn parses_video_formats_and_keeps_storyboard() {
@@ -356,6 +353,7 @@ mod tests {
         let ProbeOutcome::Video {
             id,
             title,
+            is_live,
             duration,
             channel,
             thumbnail,
@@ -368,6 +366,7 @@ mod tests {
         };
         assert_eq!(id, "abc");
         assert_eq!(title, "Hello");
+        assert!(!is_live);
         assert_eq!(duration, Some(12.0));
         assert_eq!(channel.as_deref(), Some("Chan"));
         assert_eq!(view_count, Some(1200));
@@ -386,10 +385,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_live_and_parses_playlist_entries() {
+    fn parses_live_and_playlist_entries() {
         let live = r#"{"id":"live1","title":"Now","is_live":true,"formats":[]}"#;
         match parse_probe(live, "https://www.twitch.tv/someone").unwrap() {
-            ProbeOutcome::Rejected { reason } => assert_eq!(reason, RejectReason::Live),
+            ProbeOutcome::Video { is_live, .. } => assert!(is_live),
             other => panic!("{other:?}"),
         }
         let vod = r#"{"id":"vod","title":"Vod","is_live":false,"was_live":true,"formats":[]}"#;

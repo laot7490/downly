@@ -1,5 +1,5 @@
+import { Fragment } from "react"
 import {
-  BadgeCheck,
   ClipboardPaste,
   Clock,
   Download,
@@ -14,75 +14,44 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import brandMarkDark from "../../../../src/assets/brand/icon_white_transparent.png?url"
 import type { SiteCopy } from "@/content"
 
-const brandIcon = "/brand/icon-128.png"
-
-const toggleOutline =
-  "inline-flex items-center justify-center gap-1 rounded-lg border border-input bg-transparent text-sm font-medium whitespace-nowrap [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-const toggleDefaultSize =
-  "h-8 min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2"
+const toggleBase =
+  "inline-flex shrink-0 items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-all aria-pressed:bg-muted data-[state=on]:bg-muted [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+const toggleSmall =
+  "h-7 min-w-7 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5"
 const badgeBase =
-  "inline-flex h-5 w-fit shrink-0 items-center justify-center overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap"
+  "inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap"
 
 export function AppMock({ t }: { t: SiteCopy }) {
   const m = t.appMock
 
   return (
-    <div className="app-mock" aria-hidden="true">
+    <div className="app-mock pointer-events-none" aria-hidden="true">
       <div className="flex min-h-[560px] flex-col bg-background text-foreground">
-        <header className="flex h-9 shrink-0 items-stretch border-b border-border bg-background">
-          <div className="flex min-w-0 flex-1 items-center px-3">
-            <img src={brandIcon} alt="" className="size-4" width={16} height={16} />
-            <span className="ml-2 text-sm font-semibold tracking-tight">Downly</span>
+        <header className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-border bg-background px-3">
+          <div className="flex h-full min-w-0 items-center gap-2 px-2">
+            <img src={brandMarkDark} alt="" className="size-5" width={20} height={20} />
+            <span className="text-sm font-semibold tracking-tight">Downly</span>
           </div>
-          <div className="flex h-full">
-            <span className="inline-flex size-9 items-center justify-center rounded-none text-foreground">
-              <Minus className="size-4" />
-            </span>
-            <span className="inline-flex size-9 items-center justify-center rounded-none text-foreground">
-              <Square className="size-3" />
-            </span>
-            <span className="inline-flex size-9 items-center justify-center rounded-none text-foreground">
-              <X className="size-4" />
-            </span>
+          <nav className="flex h-full items-center gap-4">
+            <span className="relative flex h-full items-center gap-2 px-2 text-sm text-foreground after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-white"><Download className="size-4" strokeWidth={1.7} />{m.downloadNav}</span>
+            <span className="h-4 w-px bg-border" />
+            <span className="flex h-full items-center gap-2 px-2 text-sm text-muted-foreground"><Clock className="size-4" strokeWidth={1.7} />{m.historyNav}</span>
+            <span className="h-4 w-px bg-border" />
+            <span className="flex h-full items-center gap-2 px-2 text-sm text-muted-foreground"><Settings className="size-4" strokeWidth={1.7} />{m.settingsNav}</span>
+          </nav>
+          <div className="flex h-full items-center justify-end">
+            <span className="inline-flex size-10 items-center justify-center rounded-lg text-foreground"><Minus className="size-4" /></span>
+            <span className="inline-flex size-10 items-center justify-center rounded-lg text-foreground"><Square className="size-3.5" /></span>
+            <span className="inline-flex size-10 items-center justify-center rounded-lg text-foreground"><X className="size-4" /></span>
           </div>
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <aside
-            className="flex w-[4.5rem] shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground"
-            style={{ ["--sidebar-width" as string]: "4.5rem" }}
-          >
-            <div className="flex flex-1 flex-col pt-2">
-              <div className="flex flex-1 flex-col justify-center px-2">
-                <div className="flex flex-col items-center gap-3">
-                  <span
-                    data-active=""
-                    className="flex size-12 items-center justify-center rounded-md bg-sidebar-accent p-0 font-medium text-sidebar-accent-foreground [&_svg]:size-6 [&_svg]:stroke-[1.4]"
-                  >
-                    <Download />
-                  </span>
-                  <span className="flex size-12 items-center justify-center rounded-md p-0 text-sidebar-foreground [&_svg]:size-6 [&_svg]:stroke-[1.4]">
-                    <Clock />
-                  </span>
-                  <span className="flex size-12 items-center justify-center rounded-md p-0 text-sidebar-foreground [&_svg]:size-6 [&_svg]:stroke-[1.4]">
-                    <Settings />
-                  </span>
-                </div>
-              </div>
-              <div className="mt-auto px-2 pb-2">
-                <div className="flex flex-col items-center">
-                  <span className="flex size-12 items-center justify-center rounded-md p-0 text-muted-foreground [&_svg]:size-4 [&_svg]:stroke-[1.4]">
-                    <BadgeCheck />
-                  </span>
-                </div>
-              </div>
-            </div>
-          </aside>
-
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-            <div className="flex flex-col gap-4 p-4 pt-6">
+            <div className="flex flex-col gap-4 px-6 py-6 sm:px-8 sm:py-7">
               <section className="mx-auto flex w-full max-w-3xl flex-col gap-4">
                 <div className="flex flex-col gap-1">
                   <h2 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -93,33 +62,31 @@ export function AppMock({ t }: { t: SiteCopy }) {
 
                 <div className="flex w-full flex-col gap-5">
                   <div className="group/field flex w-full flex-col gap-2 *:w-full">
-                    <div
-                      data-slot="toggle-group"
-                      data-variant="outline"
-                      data-spacing="0"
-                      data-orientation="horizontal"
-                      className="group/toggle-group flex w-fit flex-row items-center rounded-lg"
-                    >
+                    <div className="w-fit">
+                      <div data-slot="toggle-group" data-size="sm" data-spacing="1" className="group/toggle-group flex w-fit flex-row items-center gap-1 rounded-lg bg-input/30 p-1">
                       <span
                         data-slot="toggle-group-item"
-                        data-variant="outline"
-                        data-spacing="0"
+                        data-variant="default"
+                        data-spacing="1"
                         data-state="on"
                         aria-pressed="true"
-                        className={`${toggleOutline} ${toggleDefaultSize} min-w-24 justify-center rounded-none rounded-l-lg border-input bg-muted px-2 has-data-[icon=inline-start]:pl-1.5`}
+                        className={`${toggleBase} ${toggleSmall} min-w-24 justify-center aria-pressed:bg-background aria-pressed:shadow-xs`}
                       >
                         <Link2 data-icon="inline-start" />
                         {m.single}
                       </span>
                       <span
                         data-slot="toggle-group-item"
-                        data-variant="outline"
-                        data-spacing="0"
-                        className={`${toggleOutline} ${toggleDefaultSize} min-w-24 justify-center rounded-none rounded-r-lg border-l-0 border-input px-2 has-data-[icon=inline-start]:pl-1.5`}
+                        data-variant="default"
+                        data-spacing="1"
+                        data-state="off"
+                        aria-pressed="false"
+                        className={`${toggleBase} ${toggleSmall} min-w-24 justify-center aria-pressed:bg-background aria-pressed:shadow-xs`}
                       >
                         <ListVideo data-icon="inline-start" />
                         {m.multiple}
                       </span>
+                      </div>
                     </div>
 
                     <div className="flex items-start gap-2">
@@ -153,38 +120,31 @@ export function AppMock({ t }: { t: SiteCopy }) {
                     <div className="flex items-center gap-3">
                       <div
                         data-slot="toggle-group"
-                        data-variant="outline"
-                        data-spacing="2"
-                        className="group/toggle-group flex min-w-0 w-auto max-w-full flex-1 flex-row flex-wrap items-center gap-2 rounded-lg"
+                        data-variant="default"
+                        data-size="sm"
+                        data-spacing="1"
+                        className="group/toggle-group flex w-fit min-w-0 max-w-full flex-row flex-wrap items-center gap-1 rounded-lg bg-input/30 p-1"
                       >
                         {m.filters.map((label, index) => {
                           const active = index === 0
                           return (
-                            <span
-                              key={label}
-                              data-slot="toggle-group-item"
-                              data-variant="outline"
-                              data-state={active ? "on" : "off"}
-                              aria-pressed={active}
-                              className={`${toggleOutline} ${toggleDefaultSize} ${
-                                active ? "bg-muted" : ""
-                              }`}
-                            >
-                              {label}
+                            <Fragment key={label}>
                               <span
-                                className={`${badgeBase} ${
-                                  active
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-secondary text-secondary-foreground"
-                                }`}
+                                data-slot="toggle-group-item"
+                                data-variant="default"
+                                data-state={active ? "on" : "off"}
+                                aria-pressed={active}
+                                className={`${toggleBase} ${toggleSmall} aria-pressed:bg-background aria-pressed:shadow-xs`}
                               >
-                                0
+                                {label}
+                                <span className={`${badgeBase} ${active ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground"}`}>0</span>
                               </span>
-                            </span>
+                              {index < m.filters.length - 1 ? <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border" /> : null}
+                            </Fragment>
                           )
                         })}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
+                      <div className="ml-auto flex shrink-0 items-center gap-1">
                         <Button
                           type="button"
                           size="default"
@@ -208,20 +168,14 @@ export function AppMock({ t }: { t: SiteCopy }) {
 
                     <div
                       data-slot="empty"
-                      className="flex w-full min-w-0 flex-none flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border p-6 text-center text-balance"
+                      className="flex w-full min-w-0 flex-none flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed border-border p-6 text-center text-balance"
                     >
                       <div
                         data-slot="empty-header"
                         className="flex max-w-sm flex-col items-center gap-2"
                       >
                         <div data-slot="empty-icon" className="mb-2 flex shrink-0 items-center justify-center">
-                          <img
-                            src={brandIcon}
-                            alt=""
-                            className="size-8 opacity-40"
-                            width={32}
-                            height={32}
-                          />
+                          <img src={brandMarkDark} alt="" className="size-8 opacity-40" width={32} height={32} />
                         </div>
                         <div
                           data-slot="empty-title"
@@ -235,6 +189,13 @@ export function AppMock({ t }: { t: SiteCopy }) {
                         >
                           {m.empty}
                         </div>
+                      </div>
+                      <div className="flex w-full max-w-lg min-w-0 flex-col items-center gap-2.5 text-sm text-balance">
+                        <div className="flex w-full max-w-[25rem] flex-wrap justify-center gap-1.5">
+                          {m.sites.map((site) => <span key={site} className="inline-flex h-6 items-center gap-1.5 rounded-4xl bg-secondary px-2 text-[11px] font-medium text-muted-foreground"><span className="flex size-3.5 items-center justify-center rounded-full bg-muted-foreground/20 text-[8px] font-bold">{site[0]}</span>{site}</span>)}
+                          <span className="inline-flex h-6 items-center rounded-4xl bg-secondary px-2 text-[11px] font-medium text-muted-foreground">{m.moreSites}</span>
+                        </div>
+                        <span className="mt-0.5 text-xs font-medium text-primary underline-offset-4">{m.supportedSites}</span>
                       </div>
                     </div>
                   </div>

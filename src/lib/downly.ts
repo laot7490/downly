@@ -47,6 +47,7 @@ export type ProbeOutcome =
 			kind: "video";
 			id: string;
 			title: string;
+			is_live: boolean;
 			duration: number | null;
 			channel: string | null;
 			thumbnail: string | null;
@@ -95,12 +96,15 @@ export type Selection =
 
 export type ClipRange = { start_seconds: number; end_seconds: number };
 
+export type LiveMode = "from_now" | "from_start";
+
 export type EnqueueItem = {
 	url: string;
 	video_id: string;
 	title: string;
 	thumbnail: string | null;
 	selection: Selection;
+	live_mode?: LiveMode | null;
 	preflight_checked: boolean;
 	duration_seconds: number | null;
 	size_bytes: number | null;
@@ -122,6 +126,7 @@ export type QueueEntry = {
 	title: string;
 	thumbnail: string | null;
 	selection: Selection;
+	live_mode: LiveMode | null;
 	status: "pending" | "active";
 	duration_seconds: number | null;
 	size_bytes: number | null;
@@ -136,6 +141,7 @@ export type HistoryItem = {
 	path: string | null;
 	error: string | null;
 	selection: Selection;
+	live_mode: LiveMode | null;
 	status: "success" | "failed" | "cancelled";
 	finished_at: number;
 	duration_seconds: number | null;

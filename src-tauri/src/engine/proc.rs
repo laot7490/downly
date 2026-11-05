@@ -137,6 +137,7 @@ pub fn capture(
     exe: &Path,
     args: &[String],
     cancel: &AtomicBool,
+    finish: Option<&AtomicBool>,
     mut on_line: impl FnMut(&str),
 ) -> Result<Capture, String> {
     if cancel.load(Ordering::SeqCst) {
@@ -147,10 +148,21 @@ pub fn capture(
             cancelled: true,
         });
     }
+    if finish.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+        return Ok(Capture {
+            code: 1,
+            stdout: String::new(),
+            stderr: String::new(),
+            cancelled: false,
+        });
+    }
     let spawned = spawn(exe, args)?;
     let token = procs.register(download, Arc::clone(&spawned.kill));
     let _guard = Unregister { procs, token };
     if cancel.load(Ordering::SeqCst) {
+        spawned.kill.kill();
+    }
+    if finish.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
         spawned.kill.kill();
     }
     let (tx, rx) = std::sync::mpsc::channel::<StreamLine>();
@@ -163,6 +175,9 @@ pub fn capture(
     let mut err_lines = Vec::new();
     loop {
         if cancel.load(Ordering::SeqCst) {
+            spawned.kill.kill();
+        }
+        if finish.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
             spawned.kill.kill();
         }
         match rx.recv_timeout(Duration::from_millis(200)) {

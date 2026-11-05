@@ -3,6 +3,7 @@
 		"name": "Downly"
 	},
 	"nav": {
+		"primary": "Ana gezinme",
 		"queue": "İndir",
 		"history": "Geçmiş",
 		"settings": "Ayarlar"
@@ -18,6 +19,8 @@
 		"sub": "Bağlantıyı yapıştır, formatı seç, kuyruğa ekle.",
 		"emptyTitle": "Kuyruk boş",
 		"empty": "Kuyruğa eklemek için bir bağlantı yapıştırın.",
+		"moreSupportedSites": "+1.500 daha",
+		"viewSupportedSites": "Desteklenen tüm siteleri gör",
 		"links": "Bağlantı",
 		"linksPlaceholder": "YouTube, Twitter, TikTok…",
 		"linksMultiplePlaceholder": "Her satıra bir bağlantı yapıştırın",
@@ -56,9 +59,19 @@
 		"format": "Format",
 		"addToQueue": "Kuyruğa ekle",
 		"add": "Ekle",
+		"live": "Canlı",
+		"liveDialogTitle": "Canlı yayın algılandı",
+		"liveDialogBody": "Kayıt için başlangıç noktasını seç.",
+		"liveSelectionLabel": "Kayıt başlangıcı",
+		"liveFromNow": "Şu andan itibaren",
+		"liveFromNowDescription": "Yayın devam ederken bu andan sonrasını kaydeder.",
+		"liveFromStart": "Yayın başından itibaren",
+		"liveFromStartDescription": "Yayının başlangıcından itibaren geriye dönük yakalamayı dener.",
+		"liveFromStartWarning": "Yayın başından indirme yalnızca yt-dlp tarafından desteklenen bazı servislerde çalışır.",
 		"addN": "{{count}} tane ekle",
 		"start": "Başlat",
 		"stop": "Durdur",
+		"finishLiveRecording": "Kaydı bitir",
 		"remove": "Kaldır",
 		"cancelDownload": "İndirmeyi iptal et",
 		"moreActions": "Diğer kuyruk işlemleri",
@@ -102,6 +115,7 @@
 		"channel": "Kanal",
 		"pending": "Sırada",
 		"active": "İniyor",
+		"recording": "Kaydediliyor",
 		"message": "Bildirim",
 		"updateReady": "Güncelleme hazır",
 		"updateOpen": "Güncellemeyi aç",
@@ -119,7 +133,7 @@
 			"home": "Ana sayfa bağlantıları desteklenmiyor.",
 			"feed": "Akış bağlantıları desteklenmiyor.",
 			"unsupported": "Bu bağlantı desteklenmiyor.",
-			"live": "Canlı yayınlar desteklenmiyor."
+			"live": "Canlı yayını ekleyip indirme başlangıcını seç."
 		},
 		"skip": {
 			"already_queued": "Zaten kuyrukta."
@@ -162,8 +176,10 @@
 		"cancelled": "İptal"
 	},
 	"settings": {
+		"preferences": "Tercihler",
+		"downloads": "İndirmeler",
 		"title": "Ayarlar",
-		"sub": "Dil, tema ve dosyaların kaydedildiği yer.",
+		"sub": "Görünümü, indirme konumunu, çerezleri ve güncellemeleri yönetin.",
 		"language": "Dil",
 		"browse": "Gözat",
 		"theme": "Tema",
@@ -190,9 +206,11 @@
 		"ytdlp": "yt-dlp",
 		"ytdlpUnknown": "yt-dlp bulunamadı",
 		"updateYtdlp": "Güncelle",
-		"appVersion": "Uygulama sürümü",
+		"appVersion": "Downly",
 		"checkUpdate": "Güncellemeyi denetle",
 		"updateNone": "Güncelleme yok.",
+		"updateChecking": "Güncellemeler denetleniyor…",
+		"updateCheckFailed": "Güncellemeler denetlenemedi.",
 		"updateFound": "{{version}} sürümü hazır.",
 		"ytdlpUpdated": "yt-dlp artık {{version}}.",
 		"ytdlpUpdateFailed": "yt-dlp güncellemesi başarısız.",
