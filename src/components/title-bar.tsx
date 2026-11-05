@@ -50,6 +50,7 @@ export function TitleBar({ page, onNavigate, onClose }: Props) {
 				})}
 			</nav>
 			<div className="flex h-full items-center justify-end">
+				<div data-tauri-drag-region className="h-full min-w-0 flex-1" />
 				<div className="flex h-full items-center">
 					<Button type="button" variant="ghost" size="icon" className="size-10 rounded-lg" aria-label={t("chrome.minimize")} onClick={() => void window.minimize()}>
 						<MinusIcon />
