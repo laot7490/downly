@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { BrandMark } from "@/components/downly/brand-mark";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -11,12 +12,13 @@ type Props = {
 };
 
 export function MediaRow({ thumbnail, title, leading, meta, actions }: Props) {
+	const thumbnailSrc = thumbnail && !/^https?:\/\//i.test(thumbnail) ? convertFileSrc(thumbnail) : null;
 	return (
 		<Card size="sm" className="border border-border ring-0">
 			<CardContent className="flex items-center gap-3">
 				{leading}
-				{thumbnail ? (
-					<img src={thumbnail} alt="" className="size-12 rounded-md object-cover" />
+				{thumbnailSrc ? (
+					<img src={thumbnailSrc} alt="" className="size-12 rounded-md object-cover" />
 				) : (
 					<div className="flex size-12 items-center justify-center rounded-md bg-muted">
 						<BrandMark className="size-5 opacity-50" />

@@ -31,6 +31,61 @@ pub fn fallback_downloads() -> PathBuf {
         .join("Downloads")
 }
 
+pub fn migrate_thumbnails(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let downly = app.state::<Downly>();
+        let pending = {
+            let engine = lock(&downly.engine);
+            engine
+                .pending
+                .iter()
+                .map(|item| (item.id.clone(), item.thumbnail.clone()))
+                .chain(
+                    engine
+                        .active
+                        .iter()
+                        .map(|item| (item.id.clone(), item.thumbnail.clone())),
+                )
+                .chain(
+                    engine
+                        .session
+                        .iter()
+                        .chain(engine.history.iter())
+                        .map(|item| (item.id.clone(), item.thumbnail.clone())),
+                )
+                .filter_map(|(id, thumbnail)| {
+                    thumbnail
+                        .filter(|value| {
+                            value.starts_with("http://") || value.starts_with("https://")
+                        })
+                        .map(|url| (id, url))
+                })
+                .collect::<Vec<_>>()
+        };
+        if pending.is_empty() {
+            return;
+        }
+        let updates = pending
+            .iter()
+            .map(|(id, url)| {
+                (
+                    id.clone(),
+                    crate::engine::thumbnail::download_thumbnail(&downly.data_dir, id, Some(url)),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut engine = lock(&downly.engine);
+        for (id, thumbnail) in updates {
+            engine.set_thumbnail(&id, thumbnail);
+        }
+        let _ = store::save(&downly.data_dir, &engine);
+        let snapshot = engine.snapshot();
+        drop(engine);
+        emit(&app, &snapshot);
+    });
+}
+
 pub fn probe(app: &AppHandle, url: String) -> Result<ProbeOutcome, String> {
     match screen_url(&url) {
         Err(reason) => Ok(ProbeOutcome::Rejected { reason }),
@@ -84,13 +139,55 @@ pub fn expand_playlist(app: &AppHandle, url: String) -> Result<PlaylistSummary, 
 
 pub fn enqueue(app: &AppHandle, items: Vec<EnqueueItem>) -> Result<Vec<EnqueueOutcome>, String> {
     let downly = app.state::<Downly>();
+    let mut queue_items = items.clone();
+    for item in &mut queue_items {
+        item.thumbnail = None;
+    }
     let outcomes = {
         let mut engine = lock(&downly.engine);
         let dir = PathBuf::from(&engine.settings.download_dir);
-        let outcomes = engine.enqueue(items, &dir);
+        let outcomes = engine.enqueue(queue_items, &dir);
         store::save(&downly.data_dir, &engine)?;
         outcomes
     };
+    let thumbnail_jobs = outcomes
+        .iter()
+        .zip(&items)
+        .filter_map(|(outcome, item)| match outcome {
+            EnqueueOutcome::Added { id, .. } => item
+                .thumbnail
+                .as_deref()
+                .map(|url| (id.clone(), url.to_string())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !thumbnail_jobs.is_empty() {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let downly = app.state::<Downly>();
+            let thumbnail_updates = thumbnail_jobs
+                .iter()
+                .map(|(id, url)| {
+                    (
+                        id.clone(),
+                        crate::engine::thumbnail::download_thumbnail(
+                            &downly.data_dir,
+                            id,
+                            Some(url),
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let mut engine = lock(&downly.engine);
+            for (id, thumbnail) in thumbnail_updates {
+                engine.set_thumbnail(&id, thumbnail);
+            }
+            let _ = store::save(&downly.data_dir, &engine);
+            let snapshot = engine.snapshot();
+            drop(engine);
+            emit(&app, &snapshot);
+        });
+    }
     publish(app);
     Ok(outcomes)
 }
@@ -104,6 +201,15 @@ pub fn update_queue_metadata(
     duration_seconds: Option<u64>,
 ) -> Result<(), String> {
     let downly = app.state::<Downly>();
+    let has_local_thumbnail = {
+        let engine = lock(&downly.engine);
+        engine.has_local_thumbnail(&id)
+    };
+    let thumbnail = if has_local_thumbnail {
+        None
+    } else {
+        crate::engine::thumbnail::download_thumbnail(&downly.data_dir, &id, thumbnail.as_deref())
+    };
     let mut engine = lock(&downly.engine);
     if !engine.update_metadata(&id, &video_id, &title, thumbnail, duration_seconds) {
         return Ok(());
@@ -194,6 +300,7 @@ pub fn clear_queue(app: &AppHandle) -> Result<(), String> {
         let mut engine = lock(&downly.engine);
         let active = engine.clear_queue();
         store::save(&downly.data_dir, &engine)?;
+        crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
         active
     };
     if active {
@@ -212,6 +319,7 @@ pub fn remove(app: &AppHandle, id: String) -> Result<(), String> {
         let mut engine = lock(&downly.engine);
         engine.remove_pending(&id)?;
         store::save(&downly.data_dir, &engine)?;
+        crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
     }
     publish(app);
     Ok(())
@@ -322,6 +430,7 @@ pub fn remove_history(app: &AppHandle, id: String) -> Result<(), String> {
         let mut engine = lock(&downly.engine);
         engine.remove_history(&id)?;
         store::save(&downly.data_dir, &engine)?;
+        crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
     }
     publish(app);
     Ok(())
@@ -403,6 +512,7 @@ pub fn remove_cancelled_session_item(app: &AppHandle, id: String) -> Result<(), 
         let mut engine = lock(&downly.engine);
         engine.remove_cancelled_session_item(&id)?;
         store::save(&downly.data_dir, &engine)?;
+        crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
     }
     publish(app);
     Ok(())
@@ -414,6 +524,7 @@ pub fn remove_failed_session_item(app: &AppHandle, id: String) -> Result<(), Str
         let mut engine = lock(&downly.engine);
         engine.remove_failed_session_item(&id)?;
         store::save(&downly.data_dir, &engine)?;
+        crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
     }
     publish(app);
     Ok(())
@@ -455,6 +566,7 @@ pub fn delete_completed_session_item(app: &AppHandle, id: String) -> Result<(), 
         }
         engine.remove_completed_session_item(&id)?;
         store::save(&downly.data_dir, &engine)?;
+        crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
     }
     publish(app);
     Ok(())
@@ -466,6 +578,7 @@ pub fn clear_history(app: &AppHandle) -> Result<(), String> {
         let mut engine = lock(&downly.engine);
         engine.clear_history();
         store::save(&downly.data_dir, &engine)?;
+        crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
     }
     publish(app);
     Ok(())
@@ -612,6 +725,7 @@ async fn drive(app: AppHandle) {
         let stop = {
             let mut engine = lock(&downly.engine);
             engine.finish_active(outcome.status, outcome.path, outcome.error.clone());
+            crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
             let missing = outcome
                 .error
                 .as_deref()
@@ -656,7 +770,13 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
         Err(err) => return ItemOutcome::failed(err),
     };
     if !item.preflight_checked && item.live_mode.is_none() {
-        match preflight(app, &tools.ytdlp, &item.url, item.live_mode.is_some(), &flag) {
+        match preflight(
+            app,
+            &tools.ytdlp,
+            &item.url,
+            item.live_mode.is_some(),
+            &flag,
+        ) {
             Preflight::Cancelled => return ItemOutcome::cancelled(),
             Preflight::Stop(reason) => return ItemOutcome::failed(reason.as_str()),
             Preflight::Go => {}
@@ -691,9 +811,17 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
     if live {
         *lock(&downly.live_capture) = Some(item.id.clone());
     }
-    let captured = run_retry(app, &tools.ytdlp, &args, true, &flag, live.then_some(&downly.finish_live_recording), |line| {
-        note_line(app, line, &mut tracked, &mut final_path, live);
-    });
+    let captured = run_retry(
+        app,
+        &tools.ytdlp,
+        &args,
+        true,
+        &flag,
+        live.then_some(&downly.finish_live_recording),
+        |line| {
+            note_line(app, line, &mut tracked, &mut final_path, live);
+        },
+    );
     if live {
         let mut active = lock(&downly.live_capture);
         if active.as_deref() == Some(item.id.as_str()) {
@@ -707,7 +835,8 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
             ItemOutcome::cancelled()
         }
         Ok(_) if finishing_live => {
-            let Some(output) = choose_output(final_path.as_deref(), &tracked, &dir, &item.video_id) else {
+            let Some(output) = choose_output(final_path.as_deref(), &tracked, &dir, &item.video_id)
+            else {
                 return ItemOutcome::failed("no live recording output was saved");
             };
             if selection_requires_mp4(&item.selection) {
@@ -726,7 +855,9 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
                     Err(outcome) => ItemOutcome::failed_with_path(
                         format!(
                             "{}; MPEG-TS recording kept at {}",
-                            outcome.error.unwrap_or_else(|| "MP4 conversion failed".into()),
+                            outcome
+                                .error
+                                .unwrap_or_else(|| "MP4 conversion failed".into()),
                             output
                         ),
                         output,
@@ -779,9 +910,14 @@ fn selection_requires_mp4(selection: &Selection) -> bool {
                 | Preset::Video240
                 | Preset::Video144
         ),
-        Selection::Format { output_format, kind, .. } => {
+        Selection::Format {
+            output_format,
+            kind,
+            ..
+        } => {
             output_format.eq_ignore_ascii_case("mp4")
-                || (output_format.is_empty() && matches!(kind, FormatKind::Video | FormatKind::Mixed))
+                || (output_format.is_empty()
+                    && matches!(kind, FormatKind::Video | FormatKind::Mixed))
         }
     }
 }
@@ -807,8 +943,8 @@ fn ensure_mp4(
     let temp = target.with_file_name(format!("{stem}.downly-{item_id}.tmp.mp4"));
     let ffmpeg = ffmpeg_dir.join(ffmpeg_filename());
     let remux_args = mp4_conversion_args(source, &temp, false);
-    let remux =
-        capture(procs, true, &ffmpeg, &remux_args, cancel, None, |_| {}).map_err(ItemOutcome::failed)?;
+    let remux = capture(procs, true, &ffmpeg, &remux_args, cancel, None, |_| {})
+        .map_err(ItemOutcome::failed)?;
     if remux.cancelled {
         let _ = std::fs::remove_file(&temp);
         return Err(ItemOutcome::cancelled());
@@ -939,7 +1075,15 @@ fn run_probe(app: &AppHandle, url: &str, playlist: bool) -> Result<ProbeOutcome,
             cookies_file.as_deref(),
         )
     };
-    let captured = run_retry(app, &ytdlp, &args, false, &AtomicBool::new(false), None, |_| {})?;
+    let captured = run_retry(
+        app,
+        &ytdlp,
+        &args,
+        false,
+        &AtomicBool::new(false),
+        None,
+        |_| {},
+    )?;
     if captured.cancelled {
         return Err("cancelled".into());
     }
@@ -980,7 +1124,15 @@ fn run_retry(
         }
         attempt += 1;
         let downly = app.state::<Downly>();
-        let captured = capture(&downly.procs, download, exe, args, cancel, finish, &mut on_line)?;
+        let captured = capture(
+            &downly.procs,
+            download,
+            exe,
+            args,
+            cancel,
+            finish,
+            &mut on_line,
+        )?;
         if captured.cancelled {
             return Ok(captured);
         }

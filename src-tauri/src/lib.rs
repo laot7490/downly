@@ -32,6 +32,7 @@ pub fn run() {
                 finish_live_recording: std::sync::atomic::AtomicBool::new(false),
                 live_capture: std::sync::Mutex::new(None),
             });
+            runner::migrate_thumbnails(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

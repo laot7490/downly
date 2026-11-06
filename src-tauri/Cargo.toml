@@ -1,6 +1,6 @@
 [package]
 name = "downly"
-version = "0.6.2"
+version = "0.6.3"
 description = "YouTube video downloader"
 authors = ["Emir Genç"]
 edition = "2024"
@@ -18,12 +18,13 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.13.5", features = ["json"] }
+reqwest = { version = "0.13.5", features = ["json", "blocking"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 sha2 = "0.11.1"
 hex = "0.4.3"
 uuid = { version = "1.29.0", features = ["v4"] }

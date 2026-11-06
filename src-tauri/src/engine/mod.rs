@@ -10,5 +10,6 @@ pub mod proc;
 pub mod progress;
 pub mod queue;
 pub mod retry;
+pub mod thumbnail;
 pub mod verify;
 pub mod version;

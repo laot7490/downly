@@ -268,13 +268,7 @@ impl Engine {
                 .iter()
                 .rposition(|item| item.live_mode.is_some() == is_live)
                 .map(|index| index + 1)
-                .unwrap_or_else(|| {
-                    if is_live {
-                        0
-                    } else {
-                        self.pending.len()
-                    }
-                })
+                .unwrap_or_else(|| if is_live { 0 } else { self.pending.len() })
         };
         if before_index == from_index || before_index == from_index + 1 {
             return Ok(false);
@@ -432,6 +426,49 @@ impl Engine {
             }
         }
         changed
+    }
+
+    pub fn set_thumbnail(&mut self, id: &str, thumbnail: Option<String>) -> bool {
+        if let Some(item) = self.active.as_mut().filter(|item| item.id == id) {
+            if item.thumbnail.as_deref().is_none_or(is_remote_thumbnail) {
+                item.thumbnail = thumbnail;
+            }
+            return true;
+        }
+        if let Some(item) = self.pending.iter_mut().find(|item| item.id == id) {
+            if item.thumbnail.as_deref().is_none_or(is_remote_thumbnail) {
+                item.thumbnail = thumbnail;
+            }
+            return true;
+        }
+        if let Some(item) = self
+            .session
+            .iter_mut()
+            .chain(self.history.iter_mut())
+            .find(|item| item.id == id)
+        {
+            if item.thumbnail.as_deref().is_none_or(is_remote_thumbnail) {
+                item.thumbnail = thumbnail;
+            }
+            return true;
+        }
+        false
+    }
+
+    pub fn has_local_thumbnail(&self, id: &str) -> bool {
+        self.active.iter().chain(self.pending.iter()).any(|item| {
+            item.id == id
+                && item
+                    .thumbnail
+                    .as_deref()
+                    .is_some_and(|value| !is_remote_thumbnail(value))
+        }) || self.session.iter().chain(self.history.iter()).any(|item| {
+            item.id == id
+                && item
+                    .thumbnail
+                    .as_deref()
+                    .is_some_and(|value| !is_remote_thumbnail(value))
+        })
     }
 
     pub fn archive_session_item(&mut self, id: &str) -> Result<(), String> {
@@ -753,6 +790,10 @@ impl Engine {
     }
 }
 
+fn is_remote_thumbnail(thumbnail: &str) -> bool {
+    thumbnail.starts_with("http://") || thumbnail.starts_with("https://")
+}
+
 fn prioritize_new_items(items: &mut Vec<Item>, new_ids: &[String]) {
     let mut prioritized = Vec::with_capacity(items.len());
     for id in new_ids {
@@ -857,7 +898,10 @@ mod tests {
         ] {
             let encoded = serde_json::to_string(&browser).unwrap();
             assert_eq!(encoded, format!("\"{token}\""));
-            assert_eq!(serde_json::from_str::<CookiesBrowser>(&encoded).unwrap(), browser);
+            assert_eq!(
+                serde_json::from_str::<CookiesBrowser>(&encoded).unwrap(),
+                browser
+            );
         }
         let old_settings = r#"{"download_dir":"D:/Downloads"}"#;
         let settings: Settings = serde_json::from_str(old_settings).unwrap();
@@ -961,7 +1005,10 @@ mod tests {
             ],
             &dir,
         );
-        engine.enqueue(vec![item("latest", "https://youtube.com/watch?v=latest")], &dir);
+        engine.enqueue(
+            vec![item("latest", "https://youtube.com/watch?v=latest")],
+            &dir,
+        );
         let regular_a = item("mixed-a", "https://youtube.com/watch?v=mixed-a");
         let mut live_a = item("live-a", "https://youtube.com/watch?v=live-a");
         live_a.live_mode = Some(LiveMode::FromNow);
@@ -978,7 +1025,8 @@ mod tests {
         assert_eq!(
             ids,
             [
-                "live-a", "live-b", "mixed-a", "mixed-b", "latest", "new-a", "new-b", "old-a", "old-b"
+                "live-a", "live-b", "mixed-a", "mixed-b", "latest", "new-a", "new-b", "old-a",
+                "old-b"
             ]
         );
         let _ = fs::remove_dir_all(dir);
