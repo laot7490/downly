@@ -1,4 +1,4 @@
-# <img src="src/assets/brand/icon_black_transparent.png" alt="" width="32" align="center"> Downly
+# Downly
 
 A Windows desktop downloader for YouTube, Twitch, Vimeo, TikTok, Reddit, SoundCloud, and other sites supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp). Paste a link, choose a format, and add it to the queue.
 
