@@ -140,7 +140,7 @@ export function SettingsPage({ snapshot }: Props) {
 			</header>
 			<section aria-labelledby="preferences-heading">
 				<h2 id="preferences-heading" className="mb-2 text-xs font-medium text-muted-foreground">{t("settings.preferences")}</h2>
-				<div className="divide-y divide-border/60 rounded-xl border border-border/70 px-4">
+				<div className="divide-y divide-border/60 rounded-xl border border-border/70 bg-card px-4">
 					<Field orientation="horizontal" className="flex-col items-start justify-between gap-3 py-3 sm:flex-row sm:items-center">
 						<FieldTitle id="language-label"><GlobeIcon className="size-4 text-muted-foreground" />{t("settings.language")}</FieldTitle>
 						<ToggleGroup className="rounded-lg bg-muted/60 p-1" aria-labelledby="language-label" size="sm" spacing={1} value={[language]} onValueChange={(value) => {
@@ -166,7 +166,7 @@ export function SettingsPage({ snapshot }: Props) {
 			</section>
 			<section aria-labelledby="downloads-heading">
 				<h2 id="downloads-heading" className="mb-2 text-xs font-medium text-muted-foreground">{t("settings.downloads")}</h2>
-				<div className="divide-y divide-border/60 rounded-xl border border-border/70 px-4">
+				<div className="divide-y divide-border/60 rounded-xl border border-border/70 bg-card px-4">
 					<DownloadFolderField path={snapshot.settings.download_dir} />
 					<Field orientation="horizontal" className="flex-col items-start justify-between gap-3 py-3 sm:flex-row sm:items-center">
 						<FieldTitle id="cookies-browser-label"><CookieIcon className="size-4 text-muted-foreground" />
@@ -204,7 +204,7 @@ export function SettingsPage({ snapshot }: Props) {
 			</section>
 			<section aria-labelledby="updates-heading">
 				<h2 id="updates-heading" className="mb-2 text-xs font-medium text-muted-foreground">{t("settings.updateTitle")}</h2>
-				<div className="divide-y divide-border/60 rounded-xl border border-border/70 px-4">
+				<div className="divide-y divide-border/60 rounded-xl border border-border/70 bg-card px-4">
 					<div className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
 						<div className="min-w-0">
 							<div className="flex flex-wrap items-center gap-2">

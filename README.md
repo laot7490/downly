@@ -1,53 +1,52 @@
-# Downly
+# <img src="src/assets/brand/icon_black_transparent.png" alt="" width="32" align="center"> Downly
 
-Windows desktop downloader for YouTube, X, Streamable, Twitch, Vimeo, TikTok, Reddit, SoundCloud, and other sites yt-dlp supports. Paste a link, pick a format, queue the download.
+A Windows desktop downloader for YouTube, Twitch, Vimeo, TikTok, Reddit, SoundCloud, and other sites supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp). Paste a link, choose a format, and add it to the queue.
 
-Built with Tauri 2, React, TypeScript, and shadcn/ui. Bundled tools are yt-dlp (Unlicense) and FFmpeg (GPL).
-
-![Downly download queue](downly.jpg)
+Built with Tauri 2, React, TypeScript, and Rust.
 
 > [!NOTE]
-> The Windows installer is not code-signed. SmartScreen may warn on first open. Use More info → Run anyway.
+> The Windows installer is not code-signed, so SmartScreen may show a warning when you open it.
 
 ## Features
 
-- Look up one link and pick a raw yt-dlp format, or paste several links with a shared quality preset
-- Playlist dialog for a single playlist URL (this video or the whole list)
-- One active download at a time with Start / Stop
-- History that keeps finished and failed jobs without deleting files
-- English and Turkish UI, system / light / dark theme
-- Manual yt-dlp update with SHA-256 verification
+- Download single videos, playlists, or selected clips
+- Choose video or audio formats and quality
+- Queue downloads and review completed or failed items in history
+- Record live streams from now or, on supported services, from the beginning
+- Use browser or local cookies for content that requires a signed-in session
+- Update yt-dlp from the app
+- English and Turkish interface with system, light, and dark themes
 
 ## Install
 
-Download the latest Windows installer from [Releases](../../releases). Prefer the user install; no admin prompt.
+Download the latest Windows installer from [GitHub Releases](https://github.com/laot7490/downly/releases). The per-user installer does not require administrator access.
 
-## Build from source
+## Development
 
-### Prerequisites
+### Requirements
 
 - [Node.js](https://nodejs.org/) and [pnpm](https://pnpm.io/)
 - [Rust](https://www.rust-lang.org/)
-- [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for Windows
+- [Tauri prerequisites for Windows](https://v2.tauri.app/start/prerequisites/)
 
-### Steps
+### Run locally
 
-```bash
+```powershell
 pnpm install
 powershell -ExecutionPolicy Bypass -File scripts/fetch-binaries.ps1
 pnpm tauri dev
 ```
 
-Production build:
+To create a Windows installer:
 
-```bash
+```powershell
 pnpm tauri build
 ```
 
-`scripts/fetch-binaries.ps1` downloads official `yt-dlp.exe` and a BtbN GPL FFmpeg build into `src-tauri/resources`. Those binaries are not committed.
+The binary-fetch script downloads yt-dlp and FFmpeg into `src-tauri/resources`. These binaries are fetched locally and are not committed to the repository.
 
-## Stack
+## Technology
 
-- Frontend: Vite, React, TypeScript, Tailwind, shadcn/ui
-- Backend: Tauri 2, Rust
-- Package manager: pnpm
+- **Desktop:** Tauri 2 and Rust
+- **Frontend:** React, TypeScript, Vite, and Tailwind CSS
+- **Downloads:** yt-dlp and FFmpeg

@@ -158,6 +158,8 @@
 		"sub": "Arşivlenen indirmeler. Dosyalar diskte kalır.",
 		"today": "Bugün",
 		"yesterday": "Dün",
+		"search": "İndirme adına göre ara",
+		"searchEmpty": "Bu adla eşleşen indirme yok.",
 		"more": "Diğer",
 		"emptyTitle": "Geçmiş boş",
 		"empty": "Bitmiş bir indirmeyi arşivle veya uygulamayı kapat; burada görünür.",

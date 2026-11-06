@@ -276,7 +276,7 @@ export function QueueList({ snapshot, actions }: Props) {
 				<p className="text-sm text-muted-foreground">{t("queue.filterEmpty")}</p>
 			) : (
 				<DragDropProvider sensors={pointerSensors} onDragEnd={handleDragEnd}>
-					<div>
+					<div className="flex flex-col gap-2">
 						{rows.map((row) => {
 							if (row.kind === "session") return <SessionRow key={row.item.id} item={row.item} best={best} />;
 							if (row.item.status === "active") return <QueueRow key={row.item.id} item={row.item} snapshot={snapshot} best={best} />;

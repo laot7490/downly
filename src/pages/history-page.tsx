@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDownIcon, EllipsisVerticalIcon, FolderIcon, LinkIcon, RadioIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, EllipsisVerticalIcon, FolderIcon, LinkIcon, RadioIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -51,13 +52,23 @@ function dayKey(seconds: number) {
 	return `${date.getFullYear()}-${month}-${day}`;
 }
 
+function formatDayDate(key: string) {
+	const [year, month, day] = key.split("-");
+	return `${day}.${month}.${year}`;
+}
+
 export function HistoryPage({ snapshot }: Props) {
 	const { t, i18n } = useTranslation();
 	const [askClear, setAskClear] = useState(false);
+	const [searchQuery, setSearchQuery] = useState("");
 	const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
 	const best = t("queue.best");
 	const items = snapshot.history.filter((item) => item.status === "success").sort((a, b) => b.finished_at - a.finished_at);
-	const groups = groupDays(items, t, i18n.language);
+	const normalizedQuery = searchQuery.trim().toLocaleLowerCase(i18n.language);
+	const filteredItems = normalizedQuery
+		? items.filter((item) => item.title.toLocaleLowerCase(i18n.language).includes(normalizedQuery))
+		: items;
+	const groups = groupDays(filteredItems, t, i18n.language);
 
 	return (
 		<PageShell>
@@ -66,12 +77,6 @@ export function HistoryPage({ snapshot }: Props) {
 					<h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("history.title")}</h1>
 					<p className="text-sm text-muted-foreground">{t("history.sub")}</p>
 				</div>
-				{items.length > 0 ? (
-					<Button type="button" variant="outline" onClick={() => setAskClear(true)}>
-						<Trash2Icon data-icon="inline-start" />
-						{t("history.clear")}
-					</Button>
-				) : null}
 			</div>
 			{items.length === 0 ? (
 				<Empty className="flex-none border border-dashed border-border">
@@ -84,9 +89,28 @@ export function HistoryPage({ snapshot }: Props) {
 					</EmptyHeader>
 				</Empty>
 			) : (
-				<ScrollArea className="max-h-[calc(100svh-11rem)]">
-					<div className="flex flex-col pr-3">
-						{groups.map((group, index) => {
+				<>
+					<div className="flex items-center gap-2">
+						<div className="relative min-w-0 flex-1">
+							<SearchIcon aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+							<Input
+								aria-label={t("history.search")}
+								className="pl-8"
+								placeholder={t("history.search")}
+								value={searchQuery}
+								onChange={(event) => setSearchQuery(event.target.value)}
+							/>
+						</div>
+						<Button type="button" variant="outline" className="shrink-0" onClick={() => setAskClear(true)}>
+							<Trash2Icon data-icon="inline-start" />
+							{t("history.clear")}
+						</Button>
+					</div>
+					<ScrollArea className="max-h-[calc(100svh-11rem)]">
+						<div className="flex flex-col gap-3 pr-3 pb-3">
+						{groups.length === 0 ? (
+							<p className="py-3 text-sm text-muted-foreground">{t("history.searchEmpty")}</p>
+						) : groups.map((group, index) => {
 							const open = openDays[group.key] ?? index < 3;
 							return (
 								<Collapsible
@@ -97,10 +121,15 @@ export function HistoryPage({ snapshot }: Props) {
 										<ChevronDownIcon
 											className={open ? "transition-transform" : "-rotate-90 transition-transform"}
 										/>
-										<span className="min-w-0 flex-1 truncate">{group.label}</span>
+											<span className="min-w-0 truncate">{group.label}</span>
+											{group.label === t("history.today") || group.label === t("history.yesterday") ? (
+												<span className="shrink-0 self-center text-center text-[11px] leading-none font-normal text-muted-foreground">{formatDayDate(group.key)}</span>
+											) : null}
+											<span className="min-w-0 flex-1" />
 										<Badge variant="secondary">{group.items.length}</Badge>
 									</CollapsibleTrigger>
 									<CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-all duration-200 data-[ending-style]:h-0 data-[starting-style]:h-0">
+										<div className="flex flex-col gap-2">
 										{group.items.map((item) => (
 											<MediaRow
 												key={item.id}
@@ -159,12 +188,14 @@ export function HistoryPage({ snapshot }: Props) {
 												}
 											/>
 										))}
+										</div>
 									</CollapsibleContent>
 								</Collapsible>
 							);
 						})}
-					</div>
-				</ScrollArea>
+						</div>
+					</ScrollArea>
+				</>
 			)}
 			<AlertDialog open={askClear} onOpenChange={setAskClear}>
 				<AlertDialogContent>

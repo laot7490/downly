@@ -158,6 +158,8 @@
 		"sub": "Archived downloads. Files stay on disk.",
 		"today": "Today",
 		"yesterday": "Yesterday",
+		"search": "Search by download name",
+		"searchEmpty": "No downloads match this name.",
 		"more": "More",
 		"emptyTitle": "No history yet",
 		"empty": "Archive a finished download, or quit the app, and it lands here.",
