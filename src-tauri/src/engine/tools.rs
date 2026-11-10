@@ -3,6 +3,7 @@ use crate::net;
 use crate::state::Downly;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::ffi::OsStr;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -16,6 +17,18 @@ const DENO_REPO: &str = "https://api.github.com/repos/denoland/deno/releases/lat
 const FFMPEG_REPO: &str = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
 const MAX_EXE_BYTES: u64 = 300 * 1024 * 1024;
 const MAX_FFMPEG_ARCHIVE_BYTES: u64 = 400 * 1024 * 1024;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn hidden_command(program: impl AsRef<OsStr>) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -239,7 +252,7 @@ fn status(bin: &Path, update_available: bool) -> Result<ToolsStatus, String> {
 }
 
 fn current_version(bin: &Path, id: ToolId) -> Option<String> {
-    let output = Command::new(bin.join(id.filename()))
+    let output = hidden_command(bin.join(id.filename()))
         .arg(id.version_argument())
         .output()
         .ok()?;
@@ -589,7 +602,7 @@ fn extract_archive(
 }
 
 fn validate_executable(path: &Path, id: ToolId) -> Result<(), String> {
-    let output = Command::new(path)
+    let output = hidden_command(path)
         .arg(id.version_argument())
         .output()
         .map_err(|err| format!("could not start {}: {err}", id.key()))?;
