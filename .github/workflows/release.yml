@@ -24,8 +24,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install frontend
         run: pnpm install
-      - name: Fetch binaries
-        run: powershell -ExecutionPolicy Bypass -File scripts/fetch-binaries.ps1
       - name: Build
         uses: tauri-apps/tauri-action@v0
         env:
