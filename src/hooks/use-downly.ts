@@ -6,7 +6,7 @@ const empty: Snapshot = {
 	queue: [],
 	session: [],
 	history: [],
-	settings: { download_dir: "", cookies_browser: "disabled", cookies_updated_at: null },
+settings: { download_dir: "", cookies_browser: "disabled", cookies_updated_at: null, download_speed_limit_bytes_per_second: null },
 	progress: null,
 };
 

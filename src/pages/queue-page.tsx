@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import { CalendarDaysIcon, CheckIcon, ClipboardPasteIcon, DownloadIcon, EyeIcon, HistoryIcon, Link2Icon, LinkIcon, ListVideoIcon, PlayIcon, RadioIcon, SquareIcon, TriangleAlertIcon, UserRoundIcon } from "lucide-react";
+import { CalendarDaysIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, ClipboardPasteIcon, DownloadIcon, EyeIcon, HistoryIcon, Link2Icon, LinkIcon, ListVideoIcon, PlayIcon, RadioIcon, SquareIcon, TriangleAlertIcon, UserRoundIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldGroup } from "@/components/ui/field";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -30,7 +29,7 @@ import { PageShell } from "@/components/downly/page-shell";
 import { QueueList } from "@/components/downly/queue-list";
 import { BrandMark } from "@/components/downly/brand-mark";
 import { ClipPicker } from "@/components/downly/clip-picker";
-import { enqueue, expandPlaylist, finishLiveRecording, probe, retryFailedSessionItem, start, stop, updateQueueMetadata } from "@/lib/api";
+import { enqueue, finishLiveRecording, probe, retryFailedSessionItem, start, stop, updateQueueMetadata } from "@/lib/api";
 import { classifyCookieError, formatError, hasCookieWarning, toastError, type CookieErrorKind } from "@/lib/errors";
 import {
 	formatCount,
@@ -42,6 +41,8 @@ import {
 	type ClipRange,
 	type LiveMode,
 	type ProbeOutcome,
+	type PlaylistEntry,
+	type Selection,
 	type Snapshot,
 } from "@/lib/downly";
 import { presetChoices } from "@/lib/quality-options";
@@ -52,6 +53,91 @@ type Props = {
 };
 
 type CookiePromptRequest = { kind: CookieErrorKind | "metadata"; resolve: (retry: boolean) => void };
+type ProbedVideo = Extract<ProbeOutcome, { kind: "video" }>;
+type MultiLinkItem = {
+	id: string;
+	url: string;
+	status: "queued" | "loading" | "ready" | "failed";
+	video: ProbedVideo | null;
+	formatId: string | null;
+	qualityId: string | null;
+	clipRange: ClipRange | null;
+	liveMode: LiveMode | null;
+	error: string | null;
+	retryable: boolean;
+	warning: string | null;
+	pendingFormat: { id: string; label: string; category: FormatChoice["category"] } | null;
+	pendingQuality: { id: string; label: string; category: FormatChoice["category"] } | null;
+	addError: string | null;
+};
+
+function newMultiLinkItem(url: string): MultiLinkItem {
+	return {
+		id: crypto.randomUUID(),
+		url,
+		status: /^https?:\/\//i.test(url) ? "queued" : "failed",
+		video: null,
+		formatId: null,
+		qualityId: null,
+		clipRange: null,
+		liveMode: null,
+		error: /^https?:\/\//i.test(url) ? null : "invalid",
+		retryable: false,
+		warning: null,
+		pendingFormat: null,
+		pendingQuality: null,
+		addError: null,
+	};
+}
+
+function reconcileMultiLinkItems(current: MultiLinkItem[], urls: string[]): MultiLinkItem[] {
+	const byUrl = new Map<string, MultiLinkItem[]>();
+	for (const item of current) {
+		const matches = byUrl.get(item.url) ?? [];
+		matches.push(item);
+		byUrl.set(item.url, matches);
+	}
+	const next = urls.map((url) => byUrl.get(url)?.shift() ?? newMultiLinkItem(url));
+	return next.length === current.length && next.every((item, index) => item.id === current[index]?.id) ? current : next;
+}
+
+function qualityMetric(label: string, category: FormatChoice["category"]): number | null {
+	if (category === "video") {
+		const resolution = label.match(/(\d+)\s*p/i);
+		if (resolution) return Number(resolution[1]);
+		const size = label.match(/(\d+)\s*k/i);
+		if (size) {
+			const values: Record<number, number> = { 2: 1440, 4: 2160, 8: 4320 };
+			return values[Number(size[1])] ?? null;
+		}
+	}
+	if (category === "audio") {
+		const bitrate = label.match(/(\d+)\s*kbps/i);
+		if (bitrate) return Number(bitrate[1]);
+	}
+	return null;
+}
+
+function matchQuality(
+	options: QualityChoice[],
+	target: { id: string; label: string },
+	category: FormatChoice["category"],
+	useBestFallback: boolean,
+): QualityChoice | null {
+	if (target.id === "best") {
+		return options.find((option) => option.id === "best") ?? (useBestFallback ? options[0] ?? null : null);
+	}
+	const exact = options.find((option) => option.label.toLowerCase() === target.label.toLowerCase());
+	if (exact) return exact;
+	const value = qualityMetric(target.label, category);
+	if (value == null) return useBestFallback ? options.find((option) => option.id === "best") ?? options[0] ?? null : null;
+	const lower = options
+		.map((option) => ({ option, value: qualityMetric(option.label, category) }))
+		.filter((entry): entry is { option: QualityChoice; value: number } => entry.value != null && entry.value <= value)
+		.sort((left, right) => right.value - left.value)[0];
+	return lower?.option ?? (useBestFallback ? options.find((option) => option.id === "best") ?? options[0] ?? null : null);
+}
+
 const cookiePromptDismissed = new Error("cookie prompt dismissed");
 
 
@@ -69,6 +155,9 @@ export function QueuePage({ snapshot }: Props) {
 	const [qualityId, setQualityId] = useState<string | null>(null);
 	const [saveThumbnail, setSaveThumbnail] = useState(false);
 	const [clipRange, setClipRange] = useState<ClipRange | null>(null);
+	const [multiItems, setMultiItems] = useState<MultiLinkItem[]>([]);
+	const [activeMultiItemId, setActiveMultiItemId] = useState<string | null>(null);
+	const [playlistEntries, setPlaylistEntries] = useState<PlaylistEntry[]>([]);
 	const [liveDialogOpen, setLiveDialogOpen] = useState(false);
 	const [liveMode, setLiveMode] = useState<LiveMode>("from_now");
 	const [finishingLiveId, setFinishingLiveId] = useState<string | null>(null);
@@ -77,6 +166,8 @@ export function QueuePage({ snapshot }: Props) {
 		title: string | null;
 		count: number;
 		hasVideo: boolean;
+		entries: PlaylistEntry[];
+		sourceCardId?: string;
 	} | null>(null);
 	const [cookiePrompt, setCookiePrompt] = useState<CookiePromptRequest | null>(null);
 	const activeCookiePrompt = useRef<CookiePromptRequest | null>(null);
@@ -84,10 +175,14 @@ export function QueuePage({ snapshot }: Props) {
 	const seenFailed = useRef(new Set<string>());
 	const failedSeeded = useRef(false);
 	const metadataJobs = useRef(new Map<string, Promise<ProbeOutcome>>());
+	const multiProbeJobs = useRef(new Set<string>());
+	const multiItemsRef = useRef(multiItems);
 	const userChangedSelection = useRef(false);
 	const metadataTarget = useRef<string | null>(null);
+	const immediateProbeUrl = useRef<string | null>(null);
 
 	const lines = useMemo(() => linesOf(text), [text]);
+	multiItemsRef.current = multiItems;
 	const multi = mode === "multiple";
 	const downloading = snapshot.queue.some((item) => item.status === "active") || snapshot.progress != null;
 	const activeItem = snapshot.queue.find((item) => item.status === "active") ?? null;
@@ -98,13 +193,6 @@ export function QueuePage({ snapshot }: Props) {
 	const formatOptions: FormatChoice[] = useMemo(() => video ? formatChoices(video.formats) : [], [video]);
 	const selectedFormat = formatOptions.find((option) => option.id === formatId) ?? formatOptions[0] ?? null;
 	const baseOptions: QualityChoice[] = useMemo(() => selectedFormat && video ? qualityChoices(selectedFormat, video.formats, video.duration, best) : [], [selectedFormat, video, best]);
-	const multiFormatOptions: FormatChoice[] = [
-		{ id: "video:mp4", ext: "mp4", label: "MP4", category: "video" },
-		{ id: "audio:mp3", ext: "mp3", label: "MP3", category: "audio" },
-	];
-	const multiFormatId = formatId === "audio:mp3" ? "audio:mp3" : "video:mp4";
-	const multiQualityOptions: QualityChoice[] = useMemo(() => presetChoices(multiFormatId === "audio:mp3" ? "mp3" : "mp4", best).map((option) => ({ id: option.id, label: option.label, selection: option.selection, sizeBytes: option.sizeBytes })), [multiFormatId, best]);
-	const multiSelected = multiQualityOptions.find((option) => option.id === qualityId) ?? multiQualityOptions[0] ?? null;
 	const baseSelected = baseOptions.find((option) => option.id === qualityId) ?? baseOptions[0] ?? null;
 	const clipAllowed = !video?.is_live && (
 		baseSelected?.selection.type === "preset" ||
@@ -118,6 +206,21 @@ export function QueuePage({ snapshot }: Props) {
 		sizeBytes: option.sizeBytes == null ? undefined : Math.round(option.sizeBytes * clipRatio),
 	})), [baseOptions, clipRatio]);
 	const selected = options.find((option) => option.id === qualityId) ?? options[0] ?? null;
+	const activeMultiIndex = multiItems.findIndex((item) => item.id === activeMultiItemId);
+	const activeMultiItem = activeMultiIndex >= 0 ? multiItems[activeMultiIndex] : null;
+	const multiCardFormats = useMemo(() => activeMultiItem?.video ? formatChoices(activeMultiItem.video.formats) : [], [activeMultiItem?.video]);
+	const multiCardFormat = multiCardFormats.find((option) => option.id === activeMultiItem?.formatId)
+		?? (activeMultiItem?.video ? defaultFormatChoice(activeMultiItem.video.formats) : null);
+	const multiCardQualities = useMemo(() => multiCardFormat && activeMultiItem?.video
+		? qualityChoices(multiCardFormat, activeMultiItem.video.formats, activeMultiItem.video.duration, best)
+		: [], [multiCardFormat, activeMultiItem?.video, best]);
+	const multiCardQuality = multiCardQualities.find((option) => option.id === activeMultiItem?.qualityId)
+		?? multiCardQualities[0]
+		?? null;
+	const multiClipAllowed = Boolean(activeMultiItem?.video && !activeMultiItem.video.is_live && (
+		multiCardQuality?.selection.type === "preset" ||
+		(multiCardQuality?.selection.type === "format" && multiCardQuality.selection.kind !== "storyboard" && multiCardQuality.selection.kind !== "image")
+	));
 	const askCookiePrompt = useCallback((kind: CookieErrorKind | "metadata") => new Promise<boolean>((resolve) => {
 		const request = { kind, resolve };
 		if (activeCookiePrompt.current) {
@@ -137,6 +240,9 @@ export function QueuePage({ snapshot }: Props) {
 		activeCookiePrompt.current = next;
 		setCookiePrompt(next);
 	}, []);
+	useEffect(() => {
+		multiItemsRef.current = multiItems;
+	}, [multiItems]);
 	const probeWithRetries = useCallback((url: string, reportStatus = true, allowCookiePrompt = reportStatus) => {
 		const existing = metadataJobs.current.get(url);
 		if (existing) {
@@ -251,11 +357,13 @@ export function QueuePage({ snapshot }: Props) {
 					}
 					if (outcome.kind === "playlist") {
 						setMetadataStatus(null);
+						setPlaylistEntries(outcome.entries);
 						setPlaylist({
 							url,
 							title: outcome.title,
 							count: outcome.count,
 							hasVideo: Boolean(watchUrlWithoutList(url)),
+							entries: outcome.entries,
 						});
 						return;
 					}
@@ -273,18 +381,118 @@ export function QueuePage({ snapshot }: Props) {
 						setProbing(false);
 					}
 				});
-		}, 400);
+		}, immediateProbeUrl.current === url ? 0 : 400);
 		return () => {
 			cancelled = true;
 			window.clearTimeout(timer);
 		};
 	}, [mode, text, t, lines, probeRevision, probeWithRetries]);
 
+	useEffect(() => {
+		if (multi) {
+			setMultiItems((current) => reconcileMultiLinkItems(current, lines));
+		}
+	}, [multi, lines]);
+
+	useEffect(() => {
+		if (!multiItems.length) {
+			if (activeMultiItemId != null) setActiveMultiItemId(null);
+			return;
+		}
+		if (!multiItems.some((item) => item.id === activeMultiItemId)) {
+			setActiveMultiItemId(multiItems[0].id);
+		}
+	}, [multiItems, activeMultiItemId]);
+
+	useEffect(() => {
+		if (!multi) return;
+		const availableSlots = Math.max(0, 5 - multiProbeJobs.current.size);
+		const nextItems = multiItems
+			.filter((item) => item.status === "queued" && /^https?:\/\//i.test(item.url) && !multiProbeJobs.current.has(item.id))
+			.sort((left, right) => Number(right.id === activeMultiItemId) - Number(left.id === activeMultiItemId))
+			.slice(0, availableSlots);
+
+		for (const item of nextItems) {
+			multiProbeJobs.current.add(item.id);
+			setMultiItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: "loading", error: null } : entry));
+			void probeWithRetries(item.url, false, true)
+				.then((outcome) => {
+					if (!multiItemsRef.current.some((entry) => entry.id === item.id && entry.url === item.url)) return;
+					if (outcome.kind === "playlist") {
+						setPlaylistEntries(outcome.entries);
+						setPlaylist({
+							url: item.url,
+							title: outcome.title,
+							count: outcome.count,
+							hasVideo: Boolean(watchUrlWithoutList(item.url)),
+							entries: outcome.entries,
+							sourceCardId: item.id,
+						});
+						setMultiItems((current) => current.map((entry) => entry.id === item.id
+							? { ...entry, status: "failed", error: t("queue.multiplePlaylistDetected"), retryable: true, pendingFormat: null, pendingQuality: null }
+							: entry));
+						return;
+					}
+					if (outcome.kind === "rejected") {
+						setMultiItems((current) => current.map((entry) => entry.id === item.id
+							? { ...entry, status: "failed", error: t(`queue.reject.${outcome.reason}`), retryable: false, pendingFormat: null, pendingQuality: null }
+							: entry));
+						return;
+					}
+
+					setMultiItems((current) => current.map((entry) => {
+						if (entry.id !== item.id) return entry;
+						const availableFormats = formatChoices(outcome.formats);
+						let selectedFormat = defaultFormatChoice(outcome.formats);
+						let warning: string | null = null;
+						if (entry.pendingFormat) {
+							const requested = availableFormats.find((format) => format.id === entry.pendingFormat?.id);
+						if (requested) selectedFormat = requested;
+						else warning = t("queue.bulkFormatUnavailable", { format: entry.pendingFormat.label });
+						}
+						const qualities = selectedFormat ? qualityChoices(selectedFormat, outcome.formats, outcome.duration, best) : [];
+						let selectedQuality = qualities.find((quality) => quality.id === "best") ?? qualities[0] ?? null;
+						if (entry.pendingQuality) {
+							if (selectedFormat?.category !== entry.pendingQuality.category) {
+								warning ??= t("queue.bulkQualityUnavailable", { quality: entry.pendingQuality.label });
+							} else {
+								const match = matchQuality(qualities, entry.pendingQuality, entry.pendingQuality.category, false);
+								if (match) selectedQuality = match;
+								else warning ??= t("queue.bulkQualityUnavailable", { quality: entry.pendingQuality.label });
+							}
+						}
+						return {
+							...entry,
+							status: "ready",
+							video: outcome,
+							formatId: selectedFormat?.id ?? null,
+							qualityId: selectedQuality?.id ?? null,
+							error: null,
+							retryable: false,
+							warning,
+							pendingFormat: null,
+							pendingQuality: null,
+						};
+					}));
+				})
+				.catch((err) => {
+					if (!multiItemsRef.current.some((entry) => entry.id === item.id && entry.url === item.url)) return;
+					setMultiItems((current) => current.map((entry) => entry.id === item.id
+						? { ...entry, status: "failed", error: err === cookiePromptDismissed ? t("queue.retryMetadata") : formatError(err, t("queue.errorFailed")), retryable: true }
+						: entry));
+				})
+				.finally(() => {
+					multiProbeJobs.current.delete(item.id);
+				});
+		}
+	}, [multi, multiItems, activeMultiItemId, probeWithRetries, t, best]);
+
 	function clearProbe() {
 		metadataTarget.current = null;
 		setVideo(null);
 		setLiveDialogOpen(false);
 		setPlaylist(null);
+		setPlaylistEntries([]);
 		setFormatId(null);
 		setQualityId(null);
 		setClipRange(null);
@@ -298,20 +506,69 @@ export function QueuePage({ snapshot }: Props) {
 		return targetMode === "single" && nextLines.length === 1 && /^https?:\/\//i.test(nextLines[0] ?? "");
 	}
 
-	async function runWithCookiePrompt<T>(operation: () => Promise<T>): Promise<T> {
-		try {
-			return await operation();
-		} catch (err) {
-			const cookieError = classifyCookieError(err);
-			if (!cookieError) {
-				throw err;
-			}
-			const retry = await askCookiePrompt(cookieError);
-			if (!retry || cookieError === "decryption") {
-				throw cookiePromptDismissed;
-			}
-			return operation();
+	function applyFormatToMultiItem(item: MultiLinkItem, target: FormatChoice): MultiLinkItem {
+		if (!item.video) return item;
+		const formats = formatChoices(item.video.formats);
+		const nextFormat = formats.find((format) => format.id === target.id);
+		if (!nextFormat) {
+			return { ...item, warning: t("queue.bulkFormatUnavailable", { format: target.label }) };
 		}
+		const previousFormat = formats.find((format) => format.id === item.formatId);
+		const previousQualities = previousFormat ? qualityChoices(previousFormat, item.video.formats, item.video.duration, best) : [];
+		const previousQuality = previousQualities.find((quality) => quality.id === item.qualityId) ?? null;
+		const nextQualities = qualityChoices(nextFormat, item.video.formats, item.video.duration, best);
+		const nextQuality = previousQuality
+			? matchQuality(nextQualities, previousQuality, nextFormat.category, true)
+			: nextQualities.find((quality) => quality.id === "best") ?? nextQualities[0] ?? null;
+		return {
+			...item,
+			formatId: nextFormat.id,
+			qualityId: nextQuality?.id ?? null,
+			warning: null,
+			pendingFormat: null,
+			pendingQuality: null,
+			addError: null,
+		};
+	}
+
+	function applyQualityToMultiItem(item: MultiLinkItem, target: { id: string; label: string; category: FormatChoice["category"] }): MultiLinkItem {
+		if (!item.video) return item;
+		const formats = formatChoices(item.video.formats);
+		const selectedFormat = formats.find((format) => format.id === item.formatId) ?? defaultFormatChoice(item.video.formats);
+		if (!selectedFormat || selectedFormat.category !== target.category) {
+			return { ...item, warning: t("queue.bulkQualityUnavailable", { quality: target.label }) };
+		}
+		const qualities = qualityChoices(selectedFormat, item.video.formats, item.video.duration, best);
+		const match = matchQuality(qualities, target, selectedFormat.category, false);
+		if (!match) return { ...item, warning: t("queue.bulkQualityUnavailable", { quality: target.label }) };
+		return { ...item, qualityId: match.id, warning: null, pendingQuality: null, addError: null };
+	}
+
+	function applyFormatToAll() {
+		if (!multiCardFormat) return;
+		const target = multiCardFormat;
+		const next = multiItems.map((item) => item.status === "ready" && item.video
+			? applyFormatToMultiItem(item, target)
+			: { ...item, pendingFormat: { id: target.id, label: target.label, category: target.category }, pendingQuality: null, warning: null });
+		setMultiItems(next);
+		const firstWarning = next.find((item) => item.warning);
+		if (firstWarning) setActiveMultiItemId(firstWarning.id);
+	}
+
+	function applyQualityToAll() {
+		if (!multiCardQuality || !multiCardFormat) return;
+		const target = { id: multiCardQuality.id, label: multiCardQuality.label, category: multiCardFormat.category };
+		const next = multiItems.map((item) => item.status === "ready" && item.video
+			? applyQualityToMultiItem(item, target)
+			: { ...item, pendingQuality: target, warning: null });
+		setMultiItems(next);
+		const firstWarning = next.find((item) => item.warning);
+		if (firstWarning) setActiveMultiItemId(firstWarning.id);
+	}
+
+	function updateMultipleText(value: string) {
+		setText(value);
+		setMultiItems((current) => reconcileMultiLinkItems(current, linesOf(value)));
 	}
 
 	function applyOutcomes(outcomes: EnqueueOutcome[]) {
@@ -340,13 +597,16 @@ export function QueuePage({ snapshot }: Props) {
 			}
 			if (!multi && trimmed === text) {
 				clearProbe();
+				immediateProbeUrl.current = linesOf(trimmed)[0] ?? null;
 				setProbing(shouldProbeSingle(trimmed));
 				setProbeRevision((revision) => revision + 1);
 				return;
 			}
 			const nextText = multi && text.trim() ? `${text.replace(/\s*$/, "")}\n${trimmed}` : trimmed;
-			setText(nextText);
+			if (multi) updateMultipleText(nextText);
+			else setText(nextText);
 			clearProbe();
+			immediateProbeUrl.current = multi ? null : linesOf(nextText)[0] ?? null;
 			setProbing(shouldProbeSingle(nextText));
 		} catch (err) {
 			toastError(err, t("queue.pasteFailed"));
@@ -355,7 +615,7 @@ export function QueuePage({ snapshot }: Props) {
 
 	async function hydrateQueueItems(items: { id: string; url: string }[]) {
 		const pendingItems = [...items];
-		const workers = Array.from({ length: Math.min(3, pendingItems.length) }, async () => {
+		const workers = Array.from({ length: Math.min(5, pendingItems.length) }, async () => {
 			while (pendingItems.length > 0) {
 				const item = pendingItems.shift();
 				if (!item) {
@@ -364,7 +624,7 @@ export function QueuePage({ snapshot }: Props) {
 				try {
 					const outcome = await probeWithRetries(item.url, false, true);
 					if (outcome.kind === "video") {
-						await updateQueueMetadata(item.id, outcome.id, outcome.title, outcome.thumbnail, outcome.duration == null ? null : Math.round(outcome.duration));
+						await updateQueueMetadata(item.id, outcome.id, outcome.title, outcome.thumbnail, outcome.duration == null ? null : Math.round(outcome.duration), outcome.is_live);
 					}
 				} catch {
 					continue;
@@ -375,6 +635,15 @@ export function QueuePage({ snapshot }: Props) {
 	}
 
 	function onAdd() {
+		if (multi) {
+			if (activeMultiItem?.video?.is_live && !activeMultiItem.liveMode) {
+				setLiveMode("from_now");
+				setLiveDialogOpen(true);
+				return;
+			}
+			void enqueueCurrent(null);
+			return;
+		}
 		if (video?.is_live) {
 			setLiveMode("from_now");
 			setLiveDialogOpen(true);
@@ -384,10 +653,98 @@ export function QueuePage({ snapshot }: Props) {
 	}
 
 	async function enqueueCurrent(selectedLiveMode: LiveMode | null) {
+		if (multi) {
+			const activeId = activeMultiItemId;
+			const preparedItems = multiItems.map((item) => item.id === activeId && selectedLiveMode
+				? { ...item, liveMode: selectedLiveMode }
+				: item);
+		const fallbackSelection = presetChoices("mp4", best).find((option) => option.id === "video_best")?.selection;
+		if (!fallbackSelection) return;
+		const targets = preparedItems.flatMap<{ item: MultiLinkItem; selection: Selection; sizeBytes: number | null }>((item) => {
+			if (!item.video || item.status !== "ready") {
+				const category = item.pendingFormat?.category;
+				const choices = category === "audio"
+					? presetChoices("mp3", best)
+					: category === "video" ? presetChoices("mp4", best) : [];
+				const quality = item.pendingQuality;
+				const selection = (quality
+					? choices.find((choice) => choice.id === quality.id || choice.label.toLowerCase() === quality.label.toLowerCase())?.selection
+					: null)
+					?? choices[0]?.selection
+					?? fallbackSelection;
+				return [{ item, selection, sizeBytes: null }];
+			}
+			if (item.video.is_live && !item.liveMode) return [];
+				const formats = formatChoices(item.video.formats);
+				const format = formats.find((choice) => choice.id === item.formatId) ?? defaultFormatChoice(item.video.formats);
+				if (!format) return [];
+				const qualities = qualityChoices(format, item.video.formats, item.video.duration, best);
+				const quality = qualities.find((choice) => choice.id === item.qualityId) ?? qualities[0];
+				if (!quality) return [];
+				const canClip = !item.video.is_live && (
+					quality.selection.type === "preset" ||
+					(quality.selection.type === "format" && quality.selection.kind !== "storyboard" && quality.selection.kind !== "image")
+				);
+				const clip = canClip ? item.clipRange : null;
+				const clipRatio = clip && item.video.duration && item.video.duration > 0
+					? Math.min(1, Math.max(0, (clip.end_seconds - clip.start_seconds) / item.video.duration))
+					: 1;
+				return [{
+					item,
+					quality,
+					selection: {
+						...quality.selection,
+						save_thumbnail: quality.selection.type === "format" && quality.selection.kind === "image" ? false : saveThumbnail,
+						clip,
+					},
+					sizeBytes: quality.sizeBytes == null ? null : Math.round(quality.sizeBytes * clipRatio),
+				}];
+			});
+			if (!targets.length) return;
+			setMultiItems(preparedItems);
+			setBusy(true);
+			try {
+				const outcomes = await enqueue(targets.map(({ item, selection, sizeBytes }) => ({
+					url: item.url,
+					video_id: item.video?.id ?? "",
+					title: item.video?.title ?? "",
+					thumbnail: item.video?.thumbnail ?? null,
+					selection,
+					live_mode: item.video?.is_live ? item.liveMode : null,
+					preflight_checked: item.video != null,
+					duration_seconds: item.video?.is_live || item.video?.duration == null ? null : Math.round(item.video.duration),
+					size_bytes: item.video?.is_live ? null : sizeBytes,
+				})));
+				applyOutcomes(outcomes);
+				setLiveDialogOpen(false);
+				const addedIds = new Set<string>();
+				const addErrors = new Map<string, string>();
+				const hydration: { id: string; url: string }[] = [];
+				outcomes.forEach((outcome, index) => {
+					if (outcome.kind === "added") {
+						addedIds.add(targets[index].item.id);
+						if (!targets[index].item.video) hydration.push({ id: outcome.id, url: targets[index].item.url });
+					}
+					else if (outcome.kind === "skipped") addErrors.set(targets[index].item.id, t(`queue.skip.${outcome.reason}`));
+					else addErrors.set(targets[index].item.id, t(`queue.reject.${outcome.reason}`));
+				});
+				const remaining = preparedItems
+					.filter((item) => !addedIds.has(item.id))
+					.map((item) => addErrors.has(item.id) ? { ...item, addError: addErrors.get(item.id) ?? null } : item);
+				setMultiItems(remaining);
+				setText(remaining.map((item) => item.url).join("\n"));
+				if (hydration.length > 0) void hydrateQueueItems(hydration);
+			} catch (err) {
+				toastError(err, t("queue.errorFailed"));
+			} finally {
+				setBusy(false);
+			}
+			return;
+		}
 		if (lines.length === 0 || (mode === "single" && lines.length !== 1)) {
 			return;
 		}
-		const selection = selected?.selection ?? presetChoices("mp4", best)[0]?.selection;
+		const selection = (multi ? multiCardQuality?.selection : selected?.selection) ?? presetChoices("mp4", best)[0]?.selection;
 		if (!selection) {
 			return;
 		}
@@ -400,11 +757,11 @@ export function QueuePage({ snapshot }: Props) {
 		};
 		setBusy(true);
 		try {
-			const outcomes = await enqueue(lines.map((url) => ({
+			const outcomes = await enqueue(lines.map((url, index) => ({
 				url,
-				video_id: singleVideo?.id ?? "",
-				title: singleVideo?.title ?? "",
-				thumbnail: singleVideo?.thumbnail ?? null,
+				video_id: singleVideo?.id ?? (multi ? playlistEntries[index]?.id : null) ?? "",
+				title: singleVideo?.title ?? (multi ? playlistEntries[index]?.title : null) ?? "",
+				thumbnail: singleVideo?.thumbnail ?? (multi ? playlistEntries[index]?.thumbnail : null) ?? null,
 				selection: downloadSelection,
 				live_mode: selectedLiveMode,
 				preflight_checked: singleVideo != null,
@@ -428,7 +785,7 @@ export function QueuePage({ snapshot }: Props) {
 		}
 	}
 
-	async function onOnlyThis() {
+	function onOnlyThis() {
 		if (!playlist) {
 			return;
 		}
@@ -436,68 +793,23 @@ export function QueuePage({ snapshot }: Props) {
 		if (!watch) {
 			return;
 		}
-		setBusy(true);
-		try {
-			setPlaylist(null);
-			metadataTarget.current = watch;
-			setMetadataStatus({ kind: "loading" });
-			const outcome = await probeWithRetries(watch, false, true);
-			if (outcome.kind === "video") {
-				setText(watch);
-				setVideo(outcome);
-				const format = defaultFormatChoice(outcome.formats);
-				setFormatId(format?.id ?? null);
-				setQualityId(format ? "best" : null);
-			} else if (outcome.kind === "rejected") {
-				toast.add({ title: t(`queue.reject.${outcome.reason}`), type: "error" });
-			}
-		} catch (err) {
-			if (err === cookiePromptDismissed) {
-				return;
-			}
-			toast.add({
-				title: t("queue.metadataFailed", { error: formatError(err, t("queue.errorFailed")) }),
-				type: "error",
-			});
-		} finally {
-			metadataTarget.current = null;
-			setMetadataStatus(null);
-			setBusy(false);
-		}
+		clearProbe();
+		setMode("single");
+		immediateProbeUrl.current = watch;
+		setProbing(true);
+		setText(watch);
 	}
 
 	async function onAddAll() {
 		if (!playlist) {
 			return;
 		}
-		const selection = multiSelected?.selection ?? presetChoices(multiFormatId === "audio:mp3" ? "mp3" : "mp4", best)[0]?.selection;
-		if (!selection) return;
-		setBusy(true);
-		try {
-			const summary = await runWithCookiePrompt(() => expandPlaylist(playlist.url));
-			const outcomes = await enqueue(
-				summary.entries.map((entry) => ({
-					url: entry.url,
-					video_id: entry.id ?? "",
-					title: entry.title ?? entry.url,
-					thumbnail: entry.thumbnail,
-					selection: { ...selection, save_thumbnail: saveThumbnail },
-					preflight_checked: false,
-					duration_seconds: null,
-					size_bytes: null,
-				})),
-			);
-			applyOutcomes(outcomes);
-			setPlaylist(null);
-			setText("");
-		} catch (err) {
-			if (err === cookiePromptDismissed) {
-				return;
-			}
-			toastError(err, t("queue.errorFailed"));
-		} finally {
-			setBusy(false);
+		if (playlist.entries.length === 0 || busy) {
+			return;
 		}
+		clearProbe();
+		setMode("multiple");
+		updateMultipleText(playlist.entries.map((entry) => entry.url).join("\n"));
 	}
 
 	async function onStart() {
@@ -523,14 +835,14 @@ export function QueuePage({ snapshot }: Props) {
 	}
 
 	const linksValid = lines.every((line) => /^https?:\/\//i.test(line));
-	const showDetailsCard = (multi && lines.length > 0) || probing || video != null || playlist != null;
-	const pickerFormats = multi ? multiFormatOptions : formatOptions;
-	const pickerQualities = multi ? multiQualityOptions : options;
-	const pickerFormatId = multi ? multiFormatId : selectedFormat?.id ?? null;
-	const pickerQuality = multi ? multiSelected : selected;
-	const showFormatPicker = (multi || video != null) && pickerQualities.length > 0;
+	const showDetailsCard = (multi && multiItems.length > 0) || probing || video != null || playlist != null;
+	const showFormatPicker = multi
+		? activeMultiItem?.status === "ready" && multiCardQualities.length > 0
+		: video != null && options.length > 0;
 	const metadataBusy = probing || metadataStatus?.kind === "loading" || metadataStatus?.kind === "retrying";
-	const canAdd = !busy && !metadataBusy && lines.length > 0 && linksValid && (multi || lines.length === 1);
+	const canAdd = !busy && (multi
+		? multiItems.some((item) => /^https?:\/\//i.test(item.url))
+		: !metadataBusy && lines.length === 1 && linksValid);
 
 	return (
 		<PageShell>
@@ -574,10 +886,11 @@ export function QueuePage({ snapshot }: Props) {
 								<Textarea
 									value={text}
 									rows={3}
+									disabled={busy}
 									className="min-h-20 resize-none py-2 pr-12 pl-9"
 									placeholder={t("queue.linksMultiplePlaceholder")}
 									onChange={(event) => {
-										setText(event.target.value);
+										updateMultipleText(event.target.value);
 										clearProbe();
 										setProbing(shouldProbeSingle(event.target.value));
 									}}
@@ -588,6 +901,9 @@ export function QueuePage({ snapshot }: Props) {
 									className="h-9 min-w-0 pr-12 pl-9"
 									placeholder={t("queue.linksPlaceholder")}
 									onChange={(event) => {
+									immediateProbeUrl.current = (event.nativeEvent as InputEvent).inputType === "insertFromPaste"
+										? linesOf(event.target.value)[0] ?? null
+										: null;
 									setText(event.target.value);
 									clearProbe();
 									setProbing(shouldProbeSingle(event.target.value));
@@ -615,80 +931,100 @@ export function QueuePage({ snapshot }: Props) {
 				</Field>
 				{showDetailsCard ? (
 					<Card className="gap-0 py-0">
+						{multi && activeMultiItem ? <CardHeader className="grid-cols-[1fr_auto] items-center gap-4 border-b pt-4 pb-4">
+							<CardAction className="col-start-2 row-span-1 flex items-center gap-1">
+								<Button type="button" variant="ghost" size="icon-sm" aria-label={t("queue.previousLink")} disabled={activeMultiIndex <= 0} onClick={() => setActiveMultiItemId(multiItems[activeMultiIndex - 1]?.id ?? null)}><ChevronLeftIcon /></Button>
+								<span className="text-xs font-medium tabular-nums text-muted-foreground" aria-live="polite">{activeMultiIndex + 1}/{multiItems.length}</span>
+								<Button type="button" variant="ghost" size="icon-sm" aria-label={t("queue.nextLink")} disabled={activeMultiIndex < 0 || activeMultiIndex >= multiItems.length - 1} onClick={() => setActiveMultiItemId(multiItems[activeMultiIndex + 1]?.id ?? null)}><ChevronRightIcon /></Button>
+							</CardAction>
+						</CardHeader> : null}
 						<CardContent className="p-0">
-							<div className={multi ? "hidden" : "p-6"}>
-							{probing ? (
-								<div className="flex gap-4">
-									<Skeleton className="aspect-video w-48 shrink-0 rounded-lg" />
-									<div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
-										<Skeleton className="h-5 w-3/4" />
-										<Skeleton className="h-4 w-1/2" />
-										<div className="flex gap-1.5">
-											<Skeleton className="h-5 w-20 rounded-full" />
-											<Skeleton className="h-5 w-16 rounded-full" />
+							{multi ? activeMultiItem ? (
+								<div className="flex flex-col gap-4 p-6">
+									{activeMultiItem.status === "queued" || activeMultiItem.status === "loading" ? (
+										<div className="flex gap-4">
+											<Skeleton className="aspect-video w-full shrink-0 rounded-lg sm:w-56" />
+											<div className="hidden min-w-0 flex-1 flex-col justify-center gap-2 sm:flex">
+												<Skeleton className="h-5 w-3/4" />
+												<Skeleton className="h-4 w-1/2" />
+											</div>
 										</div>
-									</div>
-								</div>
-							) : null}
-							{video && !probing ? (
-								<div className="flex gap-4">
-									<div className="relative aspect-video w-48 shrink-0 overflow-hidden rounded-lg bg-muted">
-										{video.thumbnail ? (
-											<img src={video.thumbnail} alt="" className="size-full object-cover" />
-										) : (
-											<div className="flex size-full items-center justify-center">
-												<BrandMark className="size-8 opacity-40" />
+									) : null}
+									{activeMultiItem.status === "ready" && activeMultiItem.video ? (
+										<div className="flex flex-col gap-4 sm:flex-row">
+											<div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-muted sm:w-56">
+												{activeMultiItem.video.thumbnail ? <img src={activeMultiItem.video.thumbnail} alt="" loading="eager" className="size-full object-cover" /> : <div className="flex size-full items-center justify-center"><BrandMark className="size-8 opacity-40" /></div>}
+												{!activeMultiItem.video.is_live && formatDuration(activeMultiItem.video.duration) ? <Badge variant="secondary" className="absolute right-1 bottom-1 rounded-md border-0 bg-black/80 text-white shadow-none">{formatDuration(activeMultiItem.video.duration)}</Badge> : null}
 											</div>
-										)}
-										{!video.is_live && formatDuration(video.duration) ? (
-											<Badge variant="secondary" className="absolute right-1 bottom-1 rounded-md border-0 bg-black/80 text-white shadow-none">
-												{formatDuration(video.duration)}
-											</Badge>
-										) : null}
-									</div>
-									<div className="flex min-w-0 flex-col justify-center gap-2">
-										<p className="text-base font-medium text-foreground">{video.title}{video.is_live ? <Badge variant="destructive" className="ml-2 align-middle"><RadioIcon aria-hidden="true" />{t("queue.live")}</Badge> : null}</p>
-										{video.channel || formatCount(video.view_count) || formatUploadDate(video.upload_date) ? (
-											<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-											{video.channel ? <span className="inline-flex items-center gap-1.5"><UserRoundIcon className="size-3.5" />{video.channel}</span> : null}
-											{formatCount(video.view_count) ? <span className="inline-flex items-center gap-1.5"><EyeIcon className="size-3.5" />{formatCount(video.view_count)}</span> : null}
-											{formatUploadDate(video.upload_date) ? <span className="inline-flex items-center gap-1.5"><CalendarDaysIcon className="size-3.5" />{formatUploadDate(video.upload_date)}</span> : null}
+											<div className="flex min-w-0 flex-col justify-center gap-2">
+												<p className="break-words text-base font-medium text-foreground">{activeMultiItem.video.title}{activeMultiItem.video.is_live ? <Badge variant="destructive" className="ml-2 align-middle"><RadioIcon aria-hidden="true" />{t("queue.live")}</Badge> : null}</p>
+												{activeMultiItem.video.channel || formatCount(activeMultiItem.video.view_count) || formatUploadDate(activeMultiItem.video.upload_date) ? <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+													{activeMultiItem.video.channel ? <span className="inline-flex items-center gap-1.5"><UserRoundIcon className="size-3.5" />{activeMultiItem.video.channel}</span> : null}
+													{formatCount(activeMultiItem.video.view_count) ? <span className="inline-flex items-center gap-1.5"><EyeIcon className="size-3.5" />{formatCount(activeMultiItem.video.view_count)}</span> : null}
+													{formatUploadDate(activeMultiItem.video.upload_date) ? <span className="inline-flex items-center gap-1.5"><CalendarDaysIcon className="size-3.5" />{formatUploadDate(activeMultiItem.video.upload_date)}</span> : null}
+												</div> : null}
 											</div>
-										) : null}
-									</div>
-								</div>
-							) : null}
-							</div>
-							{showFormatPicker && !playlist ? (
-								<div className={`flex flex-col gap-4 p-6 ${multi ? "" : "border-t border-border bg-muted"}`}>
-								{showFormatPicker && !playlist ? <>
-									<FormatPicker
-										formats={pickerFormats}
-										formatId={pickerFormatId}
-										qualities={pickerQualities}
-										qualityId={pickerQuality?.id ?? null}
-										clipEnabled={clipRange != null}
+										</div>
+									) : null}
+									{activeMultiItem.error ? <Alert variant="warning"><AlertDescription className="flex flex-wrap items-center justify-between gap-3"><span>{activeMultiItem.error === "invalid" ? t("queue.invalidLink") : activeMultiItem.error}</span>{activeMultiItem.retryable ? <Button type="button" variant="outline" size="sm" onClick={() => setMultiItems((current) => current.map((item) => item.id === activeMultiItem.id ? { ...item, status: "queued", error: null, retryable: false } : item))}>{t("queue.retryMetadata")}</Button> : null}</AlertDescription></Alert> : null}
+									{activeMultiItem.warning ? <Alert variant="warning"><AlertDescription>{activeMultiItem.warning}</AlertDescription></Alert> : null}
+									{activeMultiItem.addError ? <Alert variant="warning"><AlertDescription>{activeMultiItem.addError}</AlertDescription></Alert> : null}
+									{showFormatPicker && activeMultiItem.video ? <div className="flex flex-col gap-4 border-t border-border bg-muted p-6">
+										<FormatPicker
+										formats={multiCardFormats}
+										formatId={multiCardFormat?.id ?? null}
+										qualities={multiCardQualities}
+										qualityId={multiCardQuality?.id ?? null}
+										clipEnabled={activeMultiItem.clipRange != null}
 										thumbnailEnabled={saveThumbnail}
-										showClip={!multi && !video?.is_live}
+										showClip={!activeMultiItem.video.is_live}
 										showThumbnail
 										onFormat={(id) => {
-											userChangedSelection.current = true;
-											setFormatId(id);
-											setQualityId("best");
+											const nextFormat = multiCardFormats.find((format) => format.id === id);
+											const qualities = nextFormat ? qualityChoices(nextFormat, activeMultiItem.video!.formats, activeMultiItem.video!.duration, best) : [];
+											setMultiItems((current) => current.map((item) => item.id === activeMultiItem.id ? { ...item, formatId: id, qualityId: qualities.find((quality) => quality.id === "best")?.id ?? qualities[0]?.id ?? null, warning: null, addError: null, pendingFormat: null, pendingQuality: null } : item));
 										}}
-										onQuality={(id) => {
-											userChangedSelection.current = true;
-											setQualityId(id);
-										}}
-										onClipEnabled={(enabled) => setClipRange(enabled && video?.duration ? { start_seconds: 0, end_seconds: video.duration } : null)}
+										onQuality={(id) => setMultiItems((current) => current.map((item) => item.id === activeMultiItem.id ? { ...item, qualityId: id, warning: null, addError: null, pendingQuality: null } : item))}
+										onClipEnabled={(enabled) => setMultiItems((current) => current.map((item) => item.id === activeMultiItem.id ? { ...item, clipRange: enabled && item.video?.duration ? { start_seconds: 0, end_seconds: item.video.duration } : null } : item))}
 										onThumbnailEnabled={setSaveThumbnail}
+										onApplyFormat={applyFormatToAll}
+										onApplyQuality={applyQualityToAll}
 									/>
-									{!multi && clipRange && video && video.duration && video.duration > 1 && clipAllowed ? (
-										<ClipPicker duration={video.duration} range={clipRange} onChange={setClipRange} />
-									) : null}
-								</> : null}
+										{activeMultiItem.clipRange && activeMultiItem.video.duration && activeMultiItem.video.duration > 1 && multiClipAllowed ? <ClipPicker duration={activeMultiItem.video.duration} range={activeMultiItem.clipRange} onChange={(range) => setMultiItems((current) => current.map((item) => item.id === activeMultiItem.id ? { ...item, clipRange: range } : item))} /> : null}
+									</div> : null}
 								</div>
-							) : null}
+							) : null : <>
+								<div className="p-6">
+									{probing ? <div className="flex gap-4">
+										<Skeleton className="aspect-video w-48 shrink-0 rounded-lg" />
+										<div className="flex min-w-0 flex-1 flex-col justify-center gap-2"><Skeleton className="h-5 w-3/4" /><Skeleton className="h-4 w-1/2" /><div className="flex gap-1.5"><Skeleton className="h-5 w-20 rounded-full" /><Skeleton className="h-5 w-16 rounded-full" /></div></div>
+									</div> : null}
+									{video && !probing ? <div className="flex gap-4">
+										<div className="relative aspect-video w-48 shrink-0 overflow-hidden rounded-lg bg-muted">{video.thumbnail ? <img src={video.thumbnail} alt="" className="size-full object-cover" /> : <div className="flex size-full items-center justify-center"><BrandMark className="size-8 opacity-40" /></div>}{!video.is_live && formatDuration(video.duration) ? <Badge variant="secondary" className="absolute right-1 bottom-1 rounded-md border-0 bg-black/80 text-white shadow-none">{formatDuration(video.duration)}</Badge> : null}</div>
+										<div className="flex min-w-0 flex-col justify-center gap-2">
+											<p className="text-base font-medium text-foreground">{video.title}{video.is_live ? <Badge variant="destructive" className="ml-2 align-middle"><RadioIcon aria-hidden="true" />{t("queue.live")}</Badge> : null}</p>
+											{video.channel || formatCount(video.view_count) || formatUploadDate(video.upload_date) ? <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">{video.channel ? <span className="inline-flex items-center gap-1.5"><UserRoundIcon className="size-3.5" />{video.channel}</span> : null}{formatCount(video.view_count) ? <span className="inline-flex items-center gap-1.5"><EyeIcon className="size-3.5" />{formatCount(video.view_count)}</span> : null}{formatUploadDate(video.upload_date) ? <span className="inline-flex items-center gap-1.5"><CalendarDaysIcon className="size-3.5" />{formatUploadDate(video.upload_date)}</span> : null}</div> : null}
+										</div>
+									</div> : null}
+								</div>
+								{showFormatPicker && !playlist ? <div className="flex flex-col gap-4 border-t border-border bg-muted p-6">
+									<FormatPicker
+									formats={formatOptions}
+									formatId={selectedFormat?.id ?? null}
+									qualities={options}
+									qualityId={selected?.id ?? null}
+									clipEnabled={clipRange != null}
+									thumbnailEnabled={saveThumbnail}
+									showClip={!video?.is_live}
+									showThumbnail
+									onFormat={(id) => { userChangedSelection.current = true; setFormatId(id); setQualityId("best"); }}
+									onQuality={(id) => { userChangedSelection.current = true; setQualityId(id); }}
+									onClipEnabled={(enabled) => setClipRange(enabled && video?.duration ? { start_seconds: 0, end_seconds: video.duration } : null)}
+									onThumbnailEnabled={setSaveThumbnail}
+								/>
+									{clipRange && video?.duration && video.duration > 1 && clipAllowed ? <ClipPicker duration={video.duration} range={clipRange} onChange={setClipRange} /> : null}
+								</div> : null}
+							</>}
 						</CardContent>
 					</Card>
 				) : null}
@@ -777,25 +1113,17 @@ export function QueuePage({ snapshot }: Props) {
 					<div className="flex flex-col gap-4">
 						<p className="text-sm text-foreground">{playlist?.title || t("queue.playlistTitle")}</p>
 						<p className="text-sm text-muted-foreground">{t("queue.playlistCount", { count: playlist?.count ?? 0 })}</p>
-						<Field orientation="horizontal" className="items-center">
-							<Checkbox
-								id="save-thumbnail"
-								checked={saveThumbnail}
-								onCheckedChange={(checked) => setSaveThumbnail(checked === true)}
-							/>
-							<FieldLabel htmlFor="save-thumbnail">{t("queue.saveThumbnail")}</FieldLabel>
-						</Field>
 					</div>
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={() => setPlaylist(null)}>
 							{t("queue.close")}
 						</Button>
 						{playlist?.hasVideo ? (
-							<Button type="button" variant="secondary" disabled={busy} onClick={() => void onOnlyThis()}>
+							<Button type="button" variant="secondary" disabled={busy} onClick={onOnlyThis}>
 								{t("queue.onlyThisVideo")}
 							</Button>
 						) : null}
-						<Button type="button" disabled={busy} onClick={() => void onAddAll()}>
+						<Button type="button" disabled={busy || !playlist?.entries.length} onClick={() => void onAddAll()}>
 							{t("queue.addAll", { count: playlist?.count ?? 0 })}
 						</Button>
 					</DialogFooter>

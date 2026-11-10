@@ -10,7 +10,13 @@ pub fn probe_video_args(
     cookies_file: Option<&Path>,
 ) -> Vec<String> {
     with_options(
-        vec!["-J".into(), "--no-playlist".into(), "--".into(), url.into()],
+        vec![
+            "-J".into(),
+            "--skip-download".into(),
+            "--no-playlist".into(),
+            "--".into(),
+            url.into(),
+        ],
         js_runtime,
         cookies_browser,
         cookies_file,
@@ -26,6 +32,7 @@ pub fn probe_playlist_args(
     with_options(
         vec![
             "-J".into(),
+            "--skip-download".into(),
             "--flat-playlist".into(),
             "--".into(),
             url.into(),
@@ -46,12 +53,21 @@ pub fn download_args(
     cookies_file: Option<&Path>,
     duplicate_suffix: Option<&str>,
     live_mode: Option<LiveMode>,
+    speed_limit_bytes_per_second: Option<u64>,
 ) -> Result<Vec<String>, String> {
     if let Some(format_id) = selection.format_id()
         && !valid_format_id(format_id)
     {
         return Err("invalid format".into());
     }
+    let is_clip = match selection {
+        Selection::Format { clip, .. } | Selection::Preset { clip, .. } => clip.is_some(),
+    };
+    let speed_limit_bytes_per_second = if live_mode.is_none() && !is_clip {
+        speed_limit_bytes_per_second
+    } else {
+        None
+    };
     let output_template = duplicate_suffix
         .map(|suffix| format!("%(title).200B (copy {suffix}) [%(id)s].%(ext)s"))
         .unwrap_or_else(|| OUTPUT_TEMPLATE.to_string());
@@ -59,7 +75,7 @@ pub fn download_args(
         "--newline".into(),
         "--progress".into(),
         "--concurrent-fragments".into(),
-        "4".into(),
+        if speed_limit_bytes_per_second.is_some() { "1" } else { "4" }.into(),
         "--windows-filenames".into(),
         "--no-mtime".into(),
         "--no-playlist".into(),
@@ -72,6 +88,9 @@ pub fn download_args(
         "--print".into(),
         "after_move:%(filepath)s".into(),
     ];
+    if let Some(limit) = speed_limit_bytes_per_second {
+        args.extend(["--limit-rate".into(), limit.to_string()]);
+    }
     args.extend(format_args(selection));
     if live_mode.is_some() {
         args.push("--no-part".into());
@@ -150,6 +169,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         assert!(
@@ -161,6 +181,8 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--windows-filenames"));
         assert!(args.iter().any(|arg| arg == "--no-mtime"));
         assert!(args.iter().any(|arg| arg == "--no-playlist"));
+        assert!(args.windows(2).any(|pair| pair == ["--concurrent-fragments", "4"]));
+        assert!(!args.iter().any(|arg| arg == "--limit-rate"));
         assert!(args.iter().any(|arg| arg == "--write-thumbnail"));
         assert!(args.windows(2).any(|pair| {
             pair[0] == "-f" && pair[1] == "bv*[height<=?1080]+ba/b[height<=?1080]"
@@ -178,8 +200,8 @@ mod tests {
             None,
             None,
             None,
-            None,
             Some("copy-id"),
+            None,
             None,
         )
         .unwrap();
@@ -210,10 +232,62 @@ mod tests {
             None,
             None,
             Some(LiveMode::FromStart),
+            Some(1_250_000),
         )
         .unwrap();
         assert!(live_args.iter().any(|arg| arg == "--no-part"));
         assert!(live_args.iter().any(|arg| arg == "--live-from-start"));
+        assert!(!live_args.iter().any(|arg| arg == "--limit-rate"));
+        assert!(
+            live_args
+                .windows(2)
+                .any(|pair| pair == ["--concurrent-fragments", "4"])
+        );
+
+        let limited_args = download_args(
+            &selection,
+            Path::new("D:/Downloads/Downly"),
+            Path::new("D:/resources"),
+            "https://www.youtube.com/watch?v=abc",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(1_250_000),
+        )
+        .unwrap();
+        assert!(limited_args.windows(2).any(|pair| pair == ["--limit-rate", "1250000"]));
+        assert!(limited_args.windows(2).any(|pair| pair == ["--concurrent-fragments", "1"]));
+
+        let clip_selection = Selection::Preset {
+            preset: Preset::Video1080,
+            save_thumbnail: false,
+            label: String::new(),
+            clip: Some(crate::engine::format::ClipRange {
+                start_seconds: 10,
+                end_seconds: 20,
+            }),
+        };
+        let clip_args = download_args(
+            &clip_selection,
+            Path::new("D:/Downloads/Downly"),
+            Path::new("D:/resources"),
+            "https://www.youtube.com/watch?v=abc",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(1_250_000),
+        )
+        .unwrap();
+        assert!(!clip_args.iter().any(|arg| arg == "--limit-rate"));
+        assert!(
+            clip_args
+                .windows(2)
+                .any(|pair| pair == ["--concurrent-fragments", "4"])
+        );
     }
 
     #[test]

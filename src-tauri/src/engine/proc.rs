@@ -10,7 +10,12 @@ use std::time::Duration;
 
 pub struct ProcRegistry {
     next: AtomicU64,
-    slots: Mutex<Vec<Slot>>,
+    slots: Mutex<RegistryState>,
+}
+
+struct RegistryState {
+    closing: bool,
+    slots: Vec<Slot>,
 }
 
 struct Slot {
@@ -85,26 +90,31 @@ impl ProcRegistry {
     pub fn new() -> Self {
         Self {
             next: AtomicU64::new(1),
-            slots: Mutex::new(Vec::new()),
+            slots: Mutex::new(RegistryState { closing: false, slots: Vec::new() }),
         }
     }
 
-    pub fn register(&self, download: bool, kill: Arc<dyn ProcKill>) -> u64 {
+    fn spawn_registered(&self, download: bool, exe: &Path, args: &[String]) -> Result<(u64, Spawned), String> {
+        let mut state = lock(&self.slots);
+        if state.closing {
+            return Err("application is shutting down".into());
+        }
+        let spawned = spawn(exe, args)?;
         let token = self.next.fetch_add(1, Ordering::Relaxed);
-        lock(&self.slots).push(Slot {
+        state.slots.push(Slot {
             token,
             download,
-            kill,
+            kill: Arc::clone(&spawned.kill),
         });
-        token
+        Ok((token, spawned))
     }
 
     pub fn unregister(&self, token: u64) {
-        lock(&self.slots).retain(|slot| slot.token != token);
+        lock(&self.slots).slots.retain(|slot| slot.token != token);
     }
 
     pub fn kill_downloads(&self) {
-        let kills = lock(&self.slots)
+        let kills = lock(&self.slots).slots
             .iter()
             .filter(|slot| slot.download)
             .map(|slot| Arc::clone(&slot.kill))
@@ -115,10 +125,14 @@ impl ProcRegistry {
     }
 
     pub fn kill_all(&self) {
-        let kills = lock(&self.slots)
+        let kills = {
+            let mut state = lock(&self.slots);
+            state.closing = true;
+            state.slots
             .iter()
             .map(|slot| Arc::clone(&slot.kill))
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+        };
         for kill in kills {
             kill.kill();
         }
@@ -156,8 +170,7 @@ pub fn capture(
             cancelled: false,
         });
     }
-    let spawned = spawn(exe, args)?;
-    let token = procs.register(download, Arc::clone(&spawned.kill));
+    let (token, spawned) = procs.spawn_registered(download, exe, args)?;
     let _guard = Unregister { procs, token };
     if cancel.load(Ordering::SeqCst) {
         spawned.kill.kill();
@@ -167,12 +180,18 @@ pub fn capture(
     }
     let (tx, rx) = std::sync::mpsc::channel::<StreamLine>();
     let stdout_tx = tx.clone();
+    let exit_tx = tx.clone();
     let stdout = spawned.stdout;
     let stderr = spawned.stderr;
     thread::spawn(move || read_lines(stdout, stdout_tx, true));
     thread::spawn(move || read_lines(stderr, tx, false));
+    let wait = spawned.wait;
+    thread::spawn(move || {
+        let _ = exit_tx.send(StreamLine::Exited(wait()));
+    });
     let mut out_lines = Vec::new();
     let mut err_lines = Vec::new();
+    let mut process_code = None;
     loop {
         if cancel.load(Ordering::SeqCst) {
             spawned.kill.kill();
@@ -189,11 +208,15 @@ pub fn capture(
                 on_line(&line);
                 push_tail(&mut err_lines, line);
             }
+            Ok(StreamLine::Exited(code)) => {
+                process_code = Some(code);
+                spawned.kill.kill();
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
-    let code = (spawned.wait)();
+    let code = process_code.unwrap_or(1);
     let cancelled = cancel.load(Ordering::SeqCst);
     Ok(Capture {
         code,
@@ -206,6 +229,7 @@ pub fn capture(
 enum StreamLine {
     Out(String),
     Err(String),
+    Exited(i32),
 }
 
 struct Unregister<'a> {
@@ -246,14 +270,20 @@ fn spawn_windows(exe: &Path, args: &[String]) -> Result<Spawned, String> {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let job = create_job()?;
-    let mut child = Command::new(exe)
+    let child_result = Command::new(exe)
         .args(args)
         .creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| err.to_string())?;
+        .spawn();
+    let mut child = match child_result {
+        Ok(child) => child,
+        Err(err) => {
+            close_handle(job);
+            return Err(err.to_string());
+        }
+    };
     let assigned = assign_job(job, child.as_raw_handle());
     if !assigned {
         let err = std::io::Error::last_os_error();
@@ -268,6 +298,7 @@ fn spawn_windows(exe: &Path, args: &[String]) -> Result<Spawned, String> {
         close_handle(job);
         return Err("failed to resume process".into());
     }
+    let kill = Arc::new(WinKill { job: job as usize });
     let stdout = child
         .stdout
         .take()
@@ -276,7 +307,6 @@ fn spawn_windows(exe: &Path, args: &[String]) -> Result<Spawned, String> {
         .stderr
         .take()
         .ok_or_else(|| "missing stderr".to_string())?;
-    let kill = Arc::new(WinKill { job: job as usize });
     let wait = Box::new(move || match child.wait() {
         Ok(status) => status.code().unwrap_or(1),
         Err(_) => 1,

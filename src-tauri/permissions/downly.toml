@@ -16,6 +16,7 @@ commands.allow = [
   "state",
   "set_download_dir",
   "set_cookies_browser",
+  "set_download_speed_limit",
   "import_cookies_file",
   "open_path",
   "reveal_path",

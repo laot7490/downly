@@ -121,6 +121,7 @@ fn read_settings(data_dir: &Path, downloads: &Path) -> Settings {
             .into_owned(),
         cookies_browser: CookiesBrowser::default(),
         cookies_updated_at: None,
+        download_speed_limit_bytes_per_second: None,
     }
 }
 

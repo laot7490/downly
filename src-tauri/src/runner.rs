@@ -89,8 +89,8 @@ pub fn migrate_thumbnails(app: &AppHandle) {
 pub fn probe(app: &AppHandle, url: String) -> Result<ProbeOutcome, String> {
     match screen_url(&url) {
         Err(reason) => Ok(ProbeOutcome::Rejected { reason }),
-        Ok(UrlKind::Playlist) => run_probe(app, &url, true),
-        Ok(UrlKind::Video | UrlKind::Mix) => run_probe(app, &url, false),
+        Ok(UrlKind::Video | UrlKind::Playlist) => run_probe(app, &url, true),
+        Ok(UrlKind::Mix) => run_probe(app, &url, false),
         Ok(_) => Ok(ProbeOutcome::Rejected {
             reason: RejectReason::Unsupported,
         }),
@@ -199,25 +199,48 @@ pub fn update_queue_metadata(
     title: String,
     thumbnail: Option<String>,
     duration_seconds: Option<u64>,
+    is_live: Option<bool>,
 ) -> Result<(), String> {
     let downly = app.state::<Downly>();
-    let has_local_thumbnail = {
-        let engine = lock(&downly.engine);
-        engine.has_local_thumbnail(&id)
+    let (thumbnail_url, snapshot) = {
+        let mut engine = lock(&downly.engine);
+        let metadata_changed =
+            engine.update_metadata(&id, &video_id, &title, None, duration_seconds);
+        let preflight_changed = is_live == Some(false) && engine.mark_preflight_checked(&id);
+        let changed = metadata_changed || preflight_changed;
+        if changed {
+            store::save(&downly.data_dir, &engine)?;
+        }
+        (
+            thumbnail.filter(|_| !engine.has_local_thumbnail(&id)),
+            changed.then(|| engine.snapshot()),
+        )
     };
-    let thumbnail = if has_local_thumbnail {
-        None
-    } else {
-        crate::engine::thumbnail::download_thumbnail(&downly.data_dir, &id, thumbnail.as_deref())
-    };
-    let mut engine = lock(&downly.engine);
-    if !engine.update_metadata(&id, &video_id, &title, thumbnail, duration_seconds) {
-        return Ok(());
+    if let Some(snapshot) = snapshot {
+        emit(app, &snapshot);
     }
-    store::save(&downly.data_dir, &engine)?;
-    let snap = engine.snapshot();
-    drop(engine);
-    emit(app, &snap);
+    if let Some(thumbnail_url) = thumbnail_url {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let downly = app.state::<Downly>();
+            let Some(thumbnail) = crate::engine::thumbnail::download_thumbnail(
+                &downly.data_dir,
+                &id,
+                Some(&thumbnail_url),
+            ) else {
+                return;
+            };
+            let mut engine = lock(&downly.engine);
+            if !engine.set_thumbnail(&id, Some(thumbnail)) {
+                crate::engine::thumbnail::remove_orphans(&downly.data_dir, &engine);
+                return;
+            }
+            let _ = store::save(&downly.data_dir, &engine);
+            let snapshot = engine.snapshot();
+            drop(engine);
+            emit(&app, &snapshot);
+        });
+    }
     Ok(())
 }
 
@@ -372,6 +395,23 @@ pub fn set_cookies_browser(app: &AppHandle, browser: CookiesBrowser) -> Result<(
         engine.settings.cookies_browser = browser;
         store::save(&downly.data_dir, &engine)?;
     }
+    publish(app);
+    Ok(())
+}
+
+pub fn set_download_speed_limit(app: &AppHandle, limit_bytes_per_second: Option<u64>) -> Result<(), String> {
+    if limit_bytes_per_second == Some(0) {
+        return Err("Download speed limit is out of range".into());
+    }
+    let downly = app.state::<Downly>();
+    let mut engine = lock(&downly.engine);
+    let previous = engine.settings.download_speed_limit_bytes_per_second;
+    engine.settings.download_speed_limit_bytes_per_second = limit_bytes_per_second;
+    if let Err(err) = store::save(&downly.data_dir, &engine) {
+        engine.settings.download_speed_limit_bytes_per_second = previous;
+        return Err(err);
+    }
+    drop(engine);
     publish(app);
     Ok(())
 }
@@ -662,6 +702,7 @@ pub fn shutdown(app: &AppHandle) {
     let Some(downly) = app.try_state::<Downly>() else {
         return;
     };
+    downly.metadata_slots.close();
     let active = {
         let mut engine = lock(&downly.engine);
         engine.cancel = true;
@@ -749,12 +790,12 @@ async fn drive(app: AppHandle) {
 fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
     let downly = app.state::<Downly>();
     let _finish_live_reset = FinishLiveReset(&downly.finish_live_recording);
-    let (dir, flag) = {
+    let (dir, flag, speed_limit_bytes_per_second) = {
         let engine = lock(&downly.engine);
         let dir = PathBuf::from(engine.settings.download_dir.clone());
         let flag = Arc::new(AtomicBool::new(engine.cancel || engine.cancel_current));
         *lock(&downly.download_cancel) = Some(Arc::clone(&flag));
-        (dir, flag)
+        (dir, flag, engine.settings.download_speed_limit_bytes_per_second)
     };
     let _clear = ClearFlag {
         slot: &downly.download_cancel,
@@ -800,6 +841,7 @@ fn run_item(app: &AppHandle, item: &Item) -> ItemOutcome {
         cookies_file.as_deref(),
         file_contains_id(&dir, &item.video_id).then_some(item.id.as_str()),
         item.live_mode,
+        if item.live_mode.is_none() { speed_limit_bytes_per_second } else { None },
     ) {
         Ok(args) => args,
         Err(err) => return ItemOutcome::failed(err),
@@ -1225,7 +1267,10 @@ fn js_runtime(app: &AppHandle) -> Option<PathBuf> {
 }
 
 pub async fn ensure_deno(app: &AppHandle) -> Result<PathBuf, String> {
+    static INSTALL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     let data_dir = app.state::<Downly>().data_dir.clone();
+    let _install = INSTALL.lock().await;
     if let Some(path) = resolve_deno(&data_dir) {
         return Ok(path);
     }

@@ -10,6 +10,8 @@ pub struct Settings {
     pub cookies_browser: CookiesBrowser,
     #[serde(default)]
     pub cookies_updated_at: Option<u64>,
+    #[serde(default)]
+    pub download_speed_limit_bytes_per_second: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -196,6 +198,7 @@ impl Engine {
                 download_dir: download_dir.into(),
                 cookies_browser: CookiesBrowser::default(),
                 cookies_updated_at: None,
+                download_speed_limit_bytes_per_second: None,
             },
             progress: None,
             running: false,
@@ -425,6 +428,15 @@ impl Engine {
                 ) | fill_duration(&mut item.duration_seconds, duration_seconds);
             }
         }
+        changed
+    }
+
+    pub fn mark_preflight_checked(&mut self, id: &str) -> bool {
+        let Some(item) = self.pending.iter_mut().find(|item| item.id == id) else {
+            return false;
+        };
+        let changed = !item.preflight_checked;
+        item.preflight_checked = true;
         changed
     }
 
@@ -885,7 +897,7 @@ mod tests {
         QueueStatus, Settings, SkipReason, default_download_dir,
     };
     use crate::engine::classify::RejectReason;
-    use crate::engine::format::{Preset, Selection};
+    use crate::engine::format::{LiveMode, Preset, Selection};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};

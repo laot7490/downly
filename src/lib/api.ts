@@ -18,8 +18,8 @@ export function enqueue(items: EnqueueItem[]) {
 	return invoke<EnqueueOutcome[]>("enqueue", { items });
 }
 
-export function updateQueueMetadata(id: string, videoId: string, title: string, thumbnail: string | null, durationSeconds: number | null) {
-	return invoke<void>("update_queue_metadata", { id, videoId, title, thumbnail, durationSeconds });
+export function updateQueueMetadata(id: string, videoId: string, title: string, thumbnail: string | null, durationSeconds: number | null, isLive?: boolean) {
+	return invoke<void>("update_queue_metadata", { id, videoId, title, thumbnail, durationSeconds, isLive });
 }
 
 export function start() {
@@ -56,6 +56,10 @@ export function setDownloadDir(path: string) {
 
 export function setCookiesBrowser(browser: CookiesBrowser) {
 	return invoke<void>("set_cookies_browser", { browser });
+}
+
+export function setDownloadSpeedLimit(limitBytesPerSecond: number | null) {
+	return invoke<void>("set_download_speed_limit", { limitBytesPerSecond });
 }
 
 export function importCookiesFile(path: string) {

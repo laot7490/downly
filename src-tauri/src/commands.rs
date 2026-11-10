@@ -12,6 +12,8 @@ use tauri_plugin_opener::OpenerExt;
 #[tauri::command]
 pub async fn probe(app: AppHandle, url: String) -> Result<ProbeOutcome, String> {
     runner::ensure_deno(&app).await?;
+    let downly = app.state::<Downly>();
+    let _permit = downly.metadata_slots.clone().acquire_owned().await.map_err(|_| "application is shutting down".to_string())?;
     tauri::async_runtime::spawn_blocking(move || runner::probe(&app, url))
         .await
         .map_err(|err| err.to_string())?
@@ -20,6 +22,8 @@ pub async fn probe(app: AppHandle, url: String) -> Result<ProbeOutcome, String> 
 #[tauri::command]
 pub async fn expand_playlist(app: AppHandle, url: String) -> Result<PlaylistSummary, String> {
     runner::ensure_deno(&app).await?;
+    let downly = app.state::<Downly>();
+    let _permit = downly.metadata_slots.clone().acquire_owned().await.map_err(|_| "application is shutting down".to_string())?;
     tauri::async_runtime::spawn_blocking(move || runner::expand_playlist(&app, url))
         .await
         .map_err(|err| err.to_string())?
@@ -38,8 +42,17 @@ pub fn update_queue_metadata(
     title: String,
     thumbnail: Option<String>,
     duration_seconds: Option<u64>,
+    is_live: Option<bool>,
 ) -> Result<(), String> {
-    runner::update_queue_metadata(&app, id, video_id, title, thumbnail, duration_seconds)
+    runner::update_queue_metadata(
+        &app,
+        id,
+        video_id,
+        title,
+        thumbnail,
+        duration_seconds,
+        is_live,
+    )
 }
 
 #[tauri::command]
@@ -95,6 +108,14 @@ pub fn set_download_dir(app: AppHandle, path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn set_cookies_browser(app: AppHandle, browser: CookiesBrowser) -> Result<(), String> {
     runner::set_cookies_browser(&app, browser)
+}
+
+#[tauri::command]
+pub fn set_download_speed_limit(
+    app: AppHandle,
+    limit_bytes_per_second: Option<u64>,
+) -> Result<(), String> {
+    runner::set_download_speed_limit(&app, limit_bytes_per_second)
 }
 
 #[tauri::command]

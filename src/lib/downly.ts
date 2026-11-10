@@ -159,7 +159,7 @@ export type Snapshot = {
 	queue: QueueEntry[];
 	session: HistoryItem[];
 	history: HistoryItem[];
-	settings: { download_dir: string; cookies_browser: CookiesBrowser; cookies_updated_at: number | null };
+settings: { download_dir: string; cookies_browser: CookiesBrowser; cookies_updated_at: number | null; download_speed_limit_bytes_per_second: number | null };
 	progress: ActiveProgress | null;
 };
 
