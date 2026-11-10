@@ -8,6 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CAPTURE_BYTES: usize = 32 * 1024 * 1024;
+
 pub struct ProcRegistry {
     next: AtomicU64,
     slots: Mutex<RegistryState>,
@@ -192,6 +195,7 @@ pub fn capture(
     let mut out_lines = Vec::new();
     let mut err_lines = Vec::new();
     let mut process_code = None;
+    let mut output_overflow = false;
     loop {
         if cancel.load(Ordering::SeqCst) {
             spawned.kill.kill();
@@ -208,6 +212,10 @@ pub fn capture(
                 on_line(&line);
                 push_tail(&mut err_lines, line);
             }
+            Ok(StreamLine::Overflow) => {
+                output_overflow = true;
+                spawned.kill.kill();
+            }
             Ok(StreamLine::Exited(code)) => {
                 process_code = Some(code);
                 spawned.kill.kill();
@@ -216,7 +224,13 @@ pub fn capture(
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
-    let code = process_code.unwrap_or(1);
+    let code = if output_overflow { 1 } else { process_code.unwrap_or(1) };
+    if output_overflow {
+        push_tail(
+            &mut err_lines,
+            "process output exceeded the allowed size".into(),
+        );
+    }
     let cancelled = cancel.load(Ordering::SeqCst);
     Ok(Capture {
         code,
@@ -230,6 +244,7 @@ enum StreamLine {
     Out(String),
     Err(String),
     Exited(i32),
+    Overflow,
 }
 
 struct Unregister<'a> {
@@ -503,30 +518,74 @@ fn wait_unix(child: Arc<Mutex<Child>>) -> i32 {
 
 fn read_lines(reader: impl Read, tx: std::sync::mpsc::Sender<StreamLine>, stdout: bool) {
     let mut reader = std::io::BufReader::new(reader);
-    let mut line = String::new();
     loop {
-        line.clear();
-        match std::io::BufRead::read_line(&mut reader, &mut line) {
-            Ok(0) => break,
-            Ok(_) => {
-                let trimmed = line.trim_end_matches(['\r', '\n']).to_string();
-                let message = if stdout {
-                    StreamLine::Out(trimmed)
-                } else {
-                    StreamLine::Err(trimmed)
+        let mut line = Vec::new();
+        let mut overflow = false;
+        let mut reached_eof = false;
+        loop {
+            let (consumed, newline, eof, chunk) = {
+                let available = match std::io::BufRead::fill_buf(&mut reader) {
+                    Ok(available) => available,
+                    Err(_) => return,
                 };
-                if tx.send(message).is_err() {
-                    break;
+                if available.is_empty() {
+                    reached_eof = true;
+                    (0, false, true, Vec::new())
+                } else {
+                    let length = available
+                        .iter()
+                        .position(|byte| *byte == b'\n')
+                        .map(|index| index + 1)
+                        .unwrap_or(available.len());
+                    let newline = available.get(length.wrapping_sub(1)) == Some(&b'\n');
+                    (length, newline, false, available[..length].to_vec())
+                }
+            };
+            if consumed > 0 {
+                std::io::BufRead::consume(&mut reader, consumed);
+                if !overflow {
+                    if line.len().saturating_add(chunk.len()) > MAX_LINE_BYTES {
+                        overflow = true;
+                        line.clear();
+                    } else {
+                        line.extend_from_slice(&chunk);
+                    }
                 }
             }
-            Err(_) => break,
+            if newline || eof {
+                break;
+            }
+        }
+        if reached_eof && line.is_empty() && !overflow {
+            break;
+        }
+        if overflow {
+            if tx.send(StreamLine::Overflow).is_err() {
+                break;
+            }
+        } else {
+            while matches!(line.last(), Some(b'\r' | b'\n')) {
+                line.pop();
+            }
+            let line = String::from_utf8_lossy(&line).into_owned();
+            let message = if stdout {
+                StreamLine::Out(line)
+            } else {
+                StreamLine::Err(line)
+            };
+            if tx.send(message).is_err() {
+                break;
+            }
+        }
+        if reached_eof {
+            break;
         }
     }
 }
 
 fn push_tail(lines: &mut Vec<String>, line: String) {
     lines.push(line);
-    if lines.len() > 400 {
+    while lines.len() > 400 || lines.iter().map(String::len).sum::<usize>() > MAX_CAPTURE_BYTES {
         lines.remove(0);
     }
 }

@@ -32,9 +32,10 @@ commands.allow = [
   "archive_completed_session_all",
   "delete_completed_session_item",
   "clear_history",
-  "update_ytdlp",
-  "ytdlp_version",
-  "ytdlp_info",
   "app_version",
-  "check_ytdlp_update",
 ]
+
+[[permission]]
+identifier = "tools"
+description = "Install, check, and update Downly's third-party tools"
+commands.allow = ["tools"]

@@ -16,6 +16,7 @@
 		"clipboard-manager:allow-read-text",
 		"updater:default",
 		"process:allow-restart",
-		"downly-commands"
+		"downly-commands",
+		"tools"
 	]
 }

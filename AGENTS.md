@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Downly is a Tauri 2 Windows downloader. The desktop React/TypeScript frontend lives in `src/`; Rust commands and backend logic are in `src-tauri/src/`. Tauri permissions, capabilities, icons, and bundled resources are under `src-tauri/`. The separate product website is in `web/`, with its React pages and components under `web/src/`. Shared build and binary-fetch scripts live in `scripts/`. There is no dedicated test directory today.
+Downly is a Tauri 2 Windows downloader. The desktop React/TypeScript frontend lives in `src/`; Rust commands and backend logic are in `src-tauri/src/`. Tauri permissions, capabilities, and icons are under `src-tauri/`. The separate product website is in `web/`, with its React pages and components under `web/src/`. There is no dedicated test directory today.
 
 ## Build, Test, and Development Commands
 
@@ -12,7 +12,6 @@ Run commands from the repository root unless noted.
 - `pnpm dev` starts the Vite frontend; `pnpm tauri dev` runs the full desktop app.
 - `pnpm build` type-checks and builds the frontend.
 - `pnpm tauri build` packages the desktop application.
-- `powershell -ExecutionPolicy Bypass -File scripts/fetch-binaries.ps1` fetches the external yt-dlp and FFmpeg binaries needed by the app.
 - `cargo check` from `src-tauri/` checks the Rust backend.
 - For the website, use `pnpm install` and `pnpm build` in `web/`; `pnpm lint` runs its ESLint checks.
 
@@ -32,4 +31,4 @@ Recent commits use short imperative subjects, sometimes with a version bump (for
 
 ## Security & Configuration
 
-Keep updater signing secrets and local credentials out of commits. Downloaded tools belong in `src-tauri/resources` and are intentionally fetched locally. Review Tauri capability changes carefully because they grant frontend access to native APIs.
+Keep updater signing secrets and local credentials out of commits. Downloaded tools are installed at runtime under `%LOCALAPPDATA%\Downly\bin` and are not bundled with the installer. Review Tauri capability changes carefully because they grant frontend access to native APIs.

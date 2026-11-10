@@ -20,9 +20,10 @@ import { toast } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chooseLanguage, type Language } from "@/i18n";
 import { useTheme, type ThemeChoice } from "@/theme";
-import { appVersion, checkYtdlpUpdate, importCookiesFile, setCookiesBrowser, setDownloadSpeedLimit, updateYtdlp, ytdlpInfo } from "@/lib/api";
+import { appVersion, importCookiesFile, setCookiesBrowser, setDownloadSpeedLimit } from "@/lib/api";
 import { toastError } from "@/lib/errors";
-import type { AppUpdate, CookiesBrowser, Snapshot } from "@/lib/downly";
+import type { CookiesBrowser, Snapshot } from "@/lib/downly";
+import type { ToolsController } from "@/hooks/use-tools";
 
 const languages: Language[] = ["en", "tr"];
 const themes: ThemeChoice[] = ["system", "light", "dark"];
@@ -30,23 +31,20 @@ const themeIcons = { system: MonitorIcon, light: SunIcon, dark: MoonIcon, CheckI
 
 type Props = {
 	snapshot: Snapshot;
+	tools: ToolsController;
 };
 
-export function SettingsPage({ snapshot }: Props) {
+export function SettingsPage({ snapshot, tools }: Props) {
 	const { t, i18n } = useTranslation();
 	const { theme, chooseTheme } = useTheme();
 	const language: Language = i18n.resolvedLanguage === "tr" ? "tr" : "en";
 	const [version, setVersion] = useState("");
-	const [ytdlp, setYtdlp] = useState("");
 	const [appUpdate, setAppUpdate] = useState<Update | null>(null);
-	const [ytdlpUpdate, setYtdlpUpdate] = useState<AppUpdate | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [appCheckFailed, setAppCheckFailed] = useState(false);
-	const [ytdlpCheckFailed, setYtdlpCheckFailed] = useState(false);
 	const [appBusy, setAppBusy] = useState(false);
 	const [appUpdateInstalling, setAppUpdateInstalling] = useState(false);
 	const [appUpdateProgress, setAppUpdateProgress] = useState<number | null>(null);
-	const [ytdlpBusy, setYtdlpBusy] = useState(false);
 	const [cookiesBusy, setCookiesBusy] = useState(false);
 	const [cookieDialogOpen, setCookieDialogOpen] = useState(false);
 	const [speedUnit, setSpeedUnit] = useState<"mbps" | "mbit">("mbps");
@@ -91,19 +89,14 @@ export function SettingsPage({ snapshot }: Props) {
 		setLoading(true);
 		void Promise.all([
 			appVersion().catch(() => ""),
-			ytdlpInfo().catch(() => null),
 			check().then((update) => ({ update, failed: false }), () => ({ update: null, failed: true })),
-			checkYtdlpUpdate().then((update) => ({ update, failed: false }), () => ({ update: null, failed: true })),
-		]).then(([appVer, info, app, ytdlpCheck]) => {
+		]).then(([appVer, app]) => {
 			if (cancelled) {
 				return;
 			}
 			setVersion(appVer);
-			setYtdlp(info?.version ?? "");
 			setAppUpdate(app.update);
-			setYtdlpUpdate(ytdlpCheck.update);
 			setAppCheckFailed(app.failed);
-			setYtdlpCheckFailed(ytdlpCheck.failed);
 			setLoading(false);
 		});
 		return () => {
@@ -112,8 +105,13 @@ export function SettingsPage({ snapshot }: Props) {
 	}, []);
 
 	const appNewer = Boolean(appUpdate);
-	const ytdlpNewer = Boolean(ytdlpUpdate?.newer);
 	const downloadRunning = snapshot.queue.some((item) => item.status === "active") || snapshot.progress != null;
+
+	function updateTools() {
+		void tools.updateAll().then(() => {
+			toast.add({ title: t("tools.updated"), type: "success" });
+		}).catch((error: unknown) => toastError(error, t("settings.updateFailed")));
+	}
 	const cookiesBrowsers = ["disabled", "firefox", "manual"] as const;
 	const cookiesBrowserItems = cookiesBrowsers.map((browser) => ({
 		value: browser,
@@ -296,33 +294,24 @@ export function SettingsPage({ snapshot }: Props) {
 						<div className="min-w-0">
 							<div className="flex flex-wrap items-center gap-2">
 								<FileIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-								<h3 className="text-sm font-medium">{t("settings.ytdlp")}</h3>
-								<Badge variant="outline">{ytdlp || t("settings.ytdlpUnknown")}</Badge>
+								<h3 className="text-sm font-medium">{t("settings.thirdPartyTools")}</h3>
 							</div>
 							<div role="status" className="mt-2 pl-6">
-								<Badge variant={loading ? "secondary" : ytdlpCheckFailed ? "destructive" : ytdlpNewer ? "secondary" : "success"}>
-									{loading ? <Spinner /> : ytdlpCheckFailed ? <CircleAlertIcon /> : ytdlpNewer ? <DownloadIcon /> : <CheckIcon />}
-									{loading ? t("settings.updateChecking") : ytdlpCheckFailed ? t("settings.updateCheckFailed") : ytdlpNewer ? t("settings.ytdlpFound", { version: ytdlpUpdate?.version }) : t("settings.updateNone")}
+								<Badge variant={!tools.ready || tools.checking ? "secondary" : tools.checkFailed ? "destructive" : tools.status?.update_available ? "secondary" : "success"}>
+									{!tools.ready || tools.checking ? <Spinner /> : tools.checkFailed ? <CircleAlertIcon /> : tools.status?.update_available ? <DownloadIcon /> : <CheckIcon />}
+									{!tools.ready || tools.checking ? t("settings.updateChecking") : tools.checkFailed ? t("tools.checkFailed") : tools.status?.update_available ? t("tools.updateAvailable") : t("tools.allUpToDate")}
 								</Badge>
 							</div>
+							{tools.updating ? <p className="mt-2 pl-6 text-sm text-muted-foreground">
+								{tools.progress?.tool ? t(`tools.${tools.progress.phase}`, { tool: t(`tools.names.${tools.progress.tool}`, tools.progress.tool) }) : t("tools.updating")}
+							</p> : null}
 						</div>
-						{ytdlpNewer ? <Button type="button" size="sm" className="sm:justify-self-end" disabled={ytdlpBusy} onClick={() => {
-							setYtdlpBusy(true);
-							void updateYtdlp()
-								.then(async (next) => {
-									setYtdlp(next);
-									const info = await ytdlpInfo().catch(() => null);
-									if (info) setYtdlp(info.version);
-									const result = await checkYtdlpUpdate().then((update) => ({ update, failed: false }), () => ({ update: null, failed: true }));
-									setYtdlpUpdate(result.update);
-									setYtdlpCheckFailed(result.failed);
-									toast.add({ title: t("settings.ytdlpUpdated", { version: info?.version || next }), type: "success" });
-								})
-								.catch((err) => toastError(err, t("settings.ytdlpUpdateFailed")))
-								.finally(() => setYtdlpBusy(false));
-						}}>
-							{ytdlpBusy ? <Spinner data-icon="inline-start" /> : null}
-							{t("settings.updateAction")}
+						{tools.status?.update_available ? <Button type="button" size="sm" className="sm:justify-self-end" disabled={tools.updating || downloadRunning} onClick={updateTools}>
+							{tools.updating ? <Spinner data-icon="inline-start" /> : null}
+							{downloadRunning ? t("settings.updateWaitForDownloads") : tools.updating ? t("settings.updateInProgress") : t("settings.updateAction")}
+						</Button> : tools.checkFailed ? <Button type="button" size="sm" variant="outline" className="sm:justify-self-end" disabled={tools.checking} onClick={() => void tools.checkUpdates().catch(() => undefined)}>
+							{tools.checking ? <Spinner data-icon="inline-start" /> : null}
+							{t("settings.retryCheck")}
 						</Button> : null}
 					</div>
 				</div>

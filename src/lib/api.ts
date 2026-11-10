@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AppUpdate, CookiesBrowser, EnqueueItem, EnqueueOutcome, PlaylistSummary, ProbeOutcome, Snapshot } from "@/lib/downly";
+import type { CookiesBrowser, EnqueueItem, EnqueueOutcome, PlaylistSummary, ProbeOutcome, Snapshot, ToolProgress, ToolsAction, ToolsStatus } from "@/lib/downly";
 
 export function getState() {
 	return invoke<Snapshot>("state");
@@ -122,33 +122,30 @@ export function clearHistory() {
 	return invoke<void>("clear_history");
 }
 
-export function updateYtdlp() {
-	return invoke<string>("update_ytdlp");
-}
-
-export function ytdlpVersion() {
-	return invoke<string>("ytdlp_version");
-}
-
-export type YtdlpInfo = {
-	version: string;
-	path: string;
-};
-
-export function ytdlpInfo() {
-	return invoke<YtdlpInfo>("ytdlp_info");
-}
-
 export function appVersion() {
 	return invoke<string>("app_version");
 }
 
-export function checkYtdlpUpdate() {
-	return invoke<AppUpdate | null>("check_ytdlp_update");
+export function manageTools(action: ToolsAction) {
+	return invoke<ToolsStatus>("tools", { action });
 }
 
 export function onState(handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> {
 	return listen<Snapshot>("downly-state", (event) => {
+		handler(event.payload);
+	});
+}
+
+export type TransferProgress = { id: string; percent: number };
+
+export function onTransferProgress(handler: (progress: TransferProgress) => void): Promise<UnlistenFn> {
+	return listen<TransferProgress>("downly-transfer-progress", (event) => {
+		handler(event.payload);
+	});
+}
+
+export function onToolsProgress(handler: (progress: ToolProgress) => void): Promise<UnlistenFn> {
+	return listen<ToolProgress>("downly-tools-progress", (event) => {
 		handler(event.payload);
 	});
 }

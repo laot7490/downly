@@ -374,7 +374,8 @@ function QueueRow({
 							<Progress value={isLive ? null : progress.percent ?? 0} />
 							<p className="flex gap-2 text-xs text-muted-foreground">
 								{progress.percent != null ? <span>{progress.percent.toFixed(0)}%</span> : null}
-								{progress.speed ? <span>{progress.speed}</span> : null}
+								{progress.phase === "transfer" ? <span>{t("queue.transferring")}</span> : null}
+								{progress.phase !== "transfer" && progress.speed ? <span>{progress.speed}</span> : null}
 								{!isLive && progress.eta ? <span>{progress.eta}</span> : null}
 							</p>
 						</div>

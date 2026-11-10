@@ -19,10 +19,12 @@ import { HistoryPage } from "@/pages/history-page";
 import { QueuePage } from "@/pages/queue-page";
 import { SettingsPage } from "@/pages/settings-page";
 import { useDownly } from "@/hooks/use-downly";
-import { archiveSessionAll, checkYtdlpUpdate, updateYtdlp } from "@/lib/api";
-import type { AppUpdate } from "@/lib/downly";
+import { archiveSessionAll } from "@/lib/api";
+import { useTools } from "@/hooks/use-tools";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
+import { Spinner } from "@/components/ui/spinner";
 import { Toaster } from "@/components/ui/toast";
 import { toastError } from "@/lib/errors";
 
@@ -31,8 +33,9 @@ type PageId = "queue" | "history" | "settings";
 export default function App() {
 	const { t } = useTranslation();
 	const { snapshot, ready } = useDownly();
+	const tools = useTools();
 	const [page, setPage] = useState<PageId>("queue");
-	const [offers, setOffers] = useState<{ app: Update | null; ytdlp: AppUpdate | null } | null>(null);
+	const [appOffer, setAppOffer] = useState<Update | null>(null);
 	const [updatesOpen, setUpdatesOpen] = useState(false);
 	const [appUpdateBusy, setAppUpdateBusy] = useState(false);
 	const [appUpdateStage, setAppUpdateStage] = useState<"downloading" | "installing" | null>(null);
@@ -55,6 +58,7 @@ export default function App() {
 		setPage(nextPage);
 	}
 	const requestClose = () => {
+		if (!tools.ready) return;
 		if (downloading) {
 			setAskClose(true);
 			return;
@@ -63,20 +67,19 @@ export default function App() {
 	};
 
 	useEffect(() => {
-		void Promise.all([check().catch(() => null), checkYtdlpUpdate().catch(() => null)]).then(([app, ytdlp]) => {
-			const nextOffers = {
-				app,
-				ytdlp: ytdlp?.newer ? ytdlp : null,
-			};
-			setOffers(nextOffers);
-			if (nextOffers.app || nextOffers.ytdlp) {
-				setUpdatesOpen(true);
-			}
-		});
-	}, []);
+		if (!tools.ready) return;
+		void check().then((update) => {
+			setAppOffer(update);
+			if (update) setUpdatesOpen(true);
+		}).catch(() => undefined);
+	}, [tools.ready]);
+
+	useEffect(() => {
+		if (tools.updateDialogOpen) setUpdatesOpen(true);
+	}, [tools.updateDialogOpen]);
 
 	async function installAppUpdate() {
-		const update = offers?.app;
+		const update = appOffer;
 		if (!update) {
 			return;
 		}
@@ -118,6 +121,10 @@ export default function App() {
 		let unlisten: (() => void) | undefined;
 		void window
 			.onCloseRequested((event) => {
+				if (!tools.ready) {
+					event.preventDefault();
+					return;
+				}
 				if (downloading) {
 					event.preventDefault();
 					setAskClose(true);
@@ -129,7 +136,7 @@ export default function App() {
 		return () => {
 			unlisten?.();
 		};
-	}, [downloading]);
+	}, [downloading, tools.ready]);
 
 	return (
 		<Toaster>
@@ -139,6 +146,25 @@ export default function App() {
 					onNavigate={navigateTo}
 					onClose={requestClose}
 				/>
+				<Dialog open={!tools.ready && (tools.progress != null || tools.installError != null)} onOpenChange={() => {}}>
+					<DialogContent showCloseButton={false}>
+						<DialogHeader>
+							<DialogTitle>{t("tools.installTitle")}</DialogTitle>
+							<DialogDescription>{t("tools.installBody")}</DialogDescription>
+						</DialogHeader>
+						<div className="flex flex-col gap-3">
+							<p className="text-sm font-medium">
+								{tools.installError ? t("tools.installFailed") : tools.progress?.tool ? t(`tools.${tools.progress.phase}`, { tool: t(`tools.names.${tools.progress.tool}`, tools.progress.tool) }) : t("tools.checking")}
+							</p>
+							{!tools.installError ? <Progress value={tools.progress?.total ? Math.min(100, Math.round((tools.progress.received / tools.progress.total) * 100)) : null} /> : null}
+							{tools.installError ? <p role="alert" className="break-words text-sm text-destructive">{tools.installError}</p> : null}
+						</div>
+						{tools.installError ? <DialogFooter>
+							<Button type="button" variant="outline" onClick={() => void getCurrentWindow().destroy()}>{t("tools.quit")}</Button>
+							<Button type="button" onClick={tools.retryInstall}>{t("tools.retry")}</Button>
+						</DialogFooter> : null}
+					</DialogContent>
+				</Dialog>
 				<main className="min-h-0 flex-1 overflow-hidden">
 					<ScrollArea className="h-full min-h-0">
 						<div ref={pageContentRef} className="flex flex-col gap-4 px-6 py-6 sm:px-8 sm:py-7">
@@ -146,7 +172,7 @@ export default function App() {
 								<QueuePage snapshot={snapshot} />
 							</div>
 							{page === "history" ? <HistoryPage snapshot={snapshot} /> : null}
-							{page === "settings" ? <SettingsPage snapshot={snapshot} /> : null}
+							{page === "settings" ? <SettingsPage snapshot={snapshot} tools={tools} /> : null}
 						</div>
 					</ScrollArea>
 				</main>
@@ -190,6 +216,7 @@ export default function App() {
 					onOpenChange={(open) => {
 						if (!open) {
 							setUpdatesOpen(false);
+							tools.dismissUpdateDialog();
 						}
 					}}>
 					<DialogContent>
@@ -197,7 +224,7 @@ export default function App() {
 							<DialogTitle>{t("settings.updateTitle")}</DialogTitle>
 						</DialogHeader>
 						<div className="flex flex-col gap-3">
-							{offers?.app ? (
+							{appOffer ? (
 								<div className="flex items-center justify-between gap-3">
 									<p className="text-sm text-foreground">
 										{appUpdateBusy
@@ -206,7 +233,7 @@ export default function App() {
 												: appUpdateProgress == null
 													? t("settings.updateDownloading")
 													: t("settings.updateProgress", { percent: appUpdateProgress })
-										: t("settings.updateFound", { version: offers.app.version })}
+										: t("settings.updateFound", { version: appOffer.version })}
 									</p>
 									<Button
 										type="button"
@@ -220,30 +247,28 @@ export default function App() {
 									</Button>
 								</div>
 							) : null}
-							{offers?.ytdlp ? (
+							{tools.status?.update_available ? (
 								<div className="flex items-center justify-between gap-3">
-									<p className="text-sm text-foreground">
-										{t("settings.ytdlpFound", { version: offers.ytdlp.version })}
-									</p>
-									<Button
-										type="button"
-										onClick={() => {
-											void updateYtdlp().finally(() => {
-												setOffers((current) => {
-													if (!current) {
-														return current;
-													}
-													return current.app ? { ...current, ytdlp: null } : null;
-												});
-											});
-										}}>
-										{t("settings.updateYtdlp")}
+									<div className="min-w-0">
+										<p className="text-sm font-medium text-foreground">{t("settings.thirdPartyTools")}</p>
+										{tools.updating ? <p className="mt-1 text-sm text-muted-foreground">{tools.progress?.tool ? t(`tools.${tools.progress.phase}`, { tool: t(`tools.names.${tools.progress.tool}`, tools.progress.tool) }) : t("tools.updating")}</p> : <p className="mt-1 text-sm text-muted-foreground">{t("tools.updateAvailable")}</p>}
+									</div>
+									<Button type="button" disabled={downloading || tools.updating} onClick={() => {
+										void tools.updateAll().then(() => {
+											if (!appOffer) setUpdatesOpen(false);
+										}).catch((error: unknown) => toastError(error, t("settings.updateFailed")));
+									}}>
+										{tools.updating ? <Spinner data-icon="inline-start" /> : null}
+										{downloading ? t("settings.updateWaitForDownloads") : tools.updating ? t("settings.updateInProgress") : t("settings.updateAction")}
 									</Button>
 								</div>
 							) : null}
 						</div>
 						<DialogFooter>
-							<Button type="button" variant="outline" onClick={() => setUpdatesOpen(false)}>
+							<Button type="button" variant="outline" onClick={() => {
+								setUpdatesOpen(false);
+								tools.dismissUpdateDialog();
+							}}>
 								{t("settings.notNow")}
 							</Button>
 						</DialogFooter>

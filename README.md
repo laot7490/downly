@@ -1,6 +1,6 @@
-# Downly
+<h1 align="center">Downly</h1>
 
-A Windows desktop downloader for YouTube, Twitch, Vimeo, TikTok, Reddit, SoundCloud, and other sites supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp). Paste a link, choose a format, and add it to the queue.
+<p align="center">A Windows desktop downloader for YouTube, Twitch, Vimeo, TikTok, Reddit, SoundCloud, and other sites supported by <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>.</p>
 
 Built with Tauri 2, React, TypeScript, and Rust.
 
@@ -9,17 +9,18 @@ Built with Tauri 2, React, TypeScript, and Rust.
 
 ## Features
 
-- Download single videos, playlists, or selected clips
+- Download videos, playlists, selected clips, and live streams
 - Choose video or audio formats and quality
 - Queue downloads and review completed or failed items in history
-- Record live streams from now or, on supported services, from the beginning
 - Use browser or local cookies for content that requires a signed-in session
-- Update yt-dlp from the app
+- Manage required third-party tools from one place
 - English and Turkish interface with system, light, and dark themes
 
 ## Install
 
-Download the latest Windows installer from [GitHub Releases](https://github.com/laot7490/downly/releases). The per-user installer does not require administrator access.
+Download the latest per-user Windows installer from [GitHub Releases](https://github.com/laot7490/downly/releases). It does not require administrator access.
+
+On first launch, Downly downloads and verifies yt-dlp, FFmpeg, ffprobe, and the Deno executable into `%LOCALAPPDATA%\Downly\bin`. The installer does not bundle these tools. Later updates are optional and can be installed from the startup prompt or Settings.
 
 ## Development
 
@@ -33,17 +34,15 @@ Download the latest Windows installer from [GitHub Releases](https://github.com/
 
 ```powershell
 pnpm install
-powershell -ExecutionPolicy Bypass -File scripts/fetch-binaries.ps1
 pnpm tauri dev
 ```
 
-To create a Windows installer:
+Build the frontend or create a Windows installer with:
 
 ```powershell
+pnpm build
 pnpm tauri build
 ```
-
-The binary-fetch script downloads yt-dlp and FFmpeg into `src-tauri/resources`. These binaries are fetched locally and are not committed to the repository.
 
 ## Technology
 

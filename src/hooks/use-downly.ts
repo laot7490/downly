@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getState, onState } from "@/lib/api";
+import { getState, onState, onTransferProgress } from "@/lib/api";
 import type { Snapshot } from "@/lib/downly";
 
 const empty: Snapshot = {
@@ -16,7 +16,7 @@ export function useDownly() {
 
 	useEffect(() => {
 		let active = true;
-		let unlisten: (() => void) | undefined;
+		const unlisten: Array<() => void> = [];
 		getState()
 			.then((next) => {
 				if (active) {
@@ -34,11 +34,25 @@ export function useDownly() {
 				setSnapshot(next);
 			}
 		}).then((fn) => {
-			unlisten = fn;
+			if (active) unlisten.push(fn);
+			else fn();
+		});
+		onTransferProgress((transfer) => {
+			if (!active) return;
+			setSnapshot((current) => {
+				if (current.progress?.id !== transfer.id) return current;
+				return {
+					...current,
+					progress: { ...current.progress, percent: transfer.percent, speed: null, eta: null, phase: "transfer" },
+				};
+			});
+		}).then((fn) => {
+			if (active) unlisten.push(fn);
+			else fn();
 		});
 		return () => {
 			active = false;
-			unlisten?.();
+			unlisten.forEach((fn) => fn());
 		};
 	}, []);
 

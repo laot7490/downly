@@ -80,6 +80,7 @@
 		"start": "Başlat",
 		"stop": "Durdur",
 		"finishLiveRecording": "Kaydı bitir",
+		"transferring": "İndirme klasörüne taşınıyor",
 		"remove": "Kaldır",
 		"cancelDownload": "İndirmeyi iptal et",
 		"moreActions": "Diğer kuyruk işlemleri",
@@ -221,17 +222,14 @@
 			"manual": "Manuel (cookies.txt)"
 		},
 		"saveFolder": "Klasörü kaydet",
-		"ytdlp": "yt-dlp",
-		"ytdlpUnknown": "yt-dlp bulunamadı",
-		"updateYtdlp": "Güncelle",
+		"thirdPartyTools": "Üçüncü taraf araçlar",
+		"retryCheck": "Tekrar denetle",
 		"appVersion": "Downly",
 		"checkUpdate": "Güncellemeyi denetle",
 		"updateNone": "Güncelleme yok.",
 		"updateChecking": "Güncellemeler denetleniyor…",
 		"updateCheckFailed": "Güncellemeler denetlenemedi.",
 		"updateFound": "{{version}} sürümü hazır.",
-		"ytdlpUpdated": "yt-dlp artık {{version}}.",
-		"ytdlpUpdateFailed": "yt-dlp güncellemesi başarısız.",
 		"updateFailed": "Güncelleme kurulamadı.",
 		"updateDownloading": "Güncelleme indiriliyor…",
 		"updateProgress": "Güncelleme indiriliyor ({{percent}}%)",
@@ -244,7 +242,6 @@
 		"updateApp": "Güncelle",
 		"updateAction": "Güncelle",
 		"upToDate": "Uygulama güncel",
-		"ytdlpFound": "yt-dlp {{version}} hazır.",
 		"languages": {
 			"en": "İngilizce",
 			"tr": "Türkçe"
@@ -253,6 +250,29 @@
 			"system": "Sistem",
 			"light": "Açık",
 			"dark": "Koyu"
+		}
+	},
+	"tools": {
+		"installTitle": "Gerekli araçlar indiriliyor",
+		"installBody": "İndirme özelliklerini kullanabilmek için gerekli araçlar kuruluyor. Bu işlem tamamlanana kadar uygulama kullanılamaz.",
+		"installFailed": "Araç kurulumu tamamlanamadı.",
+		"checkFailed": "Araç güncellemeleri denetlenemedi.",
+		"checking": "Araçlar denetleniyor…",
+		"failed": "{{tool}} denetlenemedi.",
+		"downloading": "{{tool}} indiriliyor…",
+		"verifying": "{{tool}} doğrulanıyor…",
+		"installing": "{{tool}} kuruluyor…",
+		"retry": "Yeniden dene",
+		"quit": "Uygulamadan çık",
+		"updateAvailable": "Bu araçlar için güncelleme var.",
+		"allUpToDate": "Tüm araçlar güncel.",
+		"updated": "Üçüncü taraf araçlar güncel.",
+		"updating": "Üçüncü taraf araçlar güncelleniyor…",
+		"names": {
+			"yt-dlp": "yt-dlp",
+			"ffmpeg": "FFmpeg",
+			"ffprobe": "ffprobe",
+			"deno": "Deno"
 		}
 	},
 	"close": {

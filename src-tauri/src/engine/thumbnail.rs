@@ -3,36 +3,16 @@ use image::ImageEncoder;
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
+use url::Url;
 
 const MAX_THUMBNAIL_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_THUMBNAIL_PIXELS: u64 = 40_000_000;
 
 pub fn download_thumbnail(data_dir: &Path, id: &str, url: Option<&str>) -> Option<String> {
     let url = url?;
-    if !url.starts_with("https://") && !url.starts_with("http://") {
-        return None;
-    }
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .ok()?;
-    let mut response = client.get(url).send().ok()?.error_for_status().ok()?;
-    if response
-        .content_length()
-        .is_some_and(|len| len > MAX_THUMBNAIL_BYTES)
-    {
-        return None;
-    }
-    let mut bytes = Vec::new();
-    response
-        .by_ref()
-        .take(MAX_THUMBNAIL_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() as u64 > MAX_THUMBNAIL_BYTES {
-        return None;
-    }
+    let bytes = fetch_thumbnail_bytes(url)?;
     let dimensions = image::ImageReader::new(Cursor::new(&bytes))
         .with_guessed_format()
         .ok()?
@@ -57,6 +37,40 @@ pub fn download_thumbnail(data_dir: &Path, id: &str, url: Option<&str>) -> Optio
     let path = dir.join(format!("{id}.webp"));
     fs::write(&path, webp).ok()?;
     Some(path.to_string_lossy().into_owned())
+}
+
+fn fetch_thumbnail_bytes(raw_url: &str) -> Option<Vec<u8>> {
+    let mut url = Url::parse(raw_url).ok()?;
+    if url.scheme() != "https" { return None; }
+    for _ in 0..=5 {
+        if url.scheme() != "https" { return None; }
+        static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+        let client = CLIENT.get_or_init(|| reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .build().expect("thumbnail HTTP client configuration is valid"));
+        let mut response = client.get(url.clone()).send().ok()?;
+        if response.status().is_redirection() {
+            let location = response.headers().get(reqwest::header::LOCATION)?.to_str().ok()?;
+            url = url.join(location).ok()?;
+            continue;
+        }
+        response = response.error_for_status().ok()?;
+        if response
+            .content_length()
+            .is_some_and(|len| len > MAX_THUMBNAIL_BYTES)
+        {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        response
+            .by_ref()
+            .take(MAX_THUMBNAIL_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        return (bytes.len() as u64 <= MAX_THUMBNAIL_BYTES).then_some(bytes);
+    }
+    None
 }
 
 pub fn remove_orphans(data_dir: &Path, engine: &Engine) {

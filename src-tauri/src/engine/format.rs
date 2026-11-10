@@ -316,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn video_only_vp9_and_opus_merges_to_mkv() {
+    fn video_only_vp9_and_opus_respects_mp4_output_choice() {
         let args = format_args(&format_selection(
             "248",
             true,
@@ -326,7 +326,7 @@ mod tests {
             "opus",
         ));
         assert!(has_pair(&args, "-f", "248+bestaudio"));
-        assert!(has_pair(&args, "--merge-output-format", "mkv"));
+        assert!(has_pair(&args, "--merge-output-format", "mp4"));
         assert_no_video_encode(&args);
     }
 

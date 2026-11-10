@@ -1192,7 +1192,7 @@ mod tests {
     }
 
     #[test]
-    fn start_drains_in_order_and_stop_leaves_the_rest() {
+    fn new_items_move_ahead_of_pending_items_and_stop_leaves_the_rest() {
         let dir = scratch();
         let mut engine = Engine::new(dir.to_string_lossy().to_string());
         engine.enqueue(
@@ -1213,7 +1213,7 @@ mod tests {
         );
         engine.finish_active(HistoryStatus::Success, Some("a.mp4".into()), None);
         let second = engine.take_next().unwrap();
-        assert_eq!(second.video_id, "bbb");
+        assert_eq!(second.video_id, "ccc");
         engine.request_stop();
         engine.finish_active(HistoryStatus::Cancelled, None, None);
         assert!(engine.take_next().is_none());
@@ -1221,7 +1221,7 @@ mod tests {
         assert!(!engine.running);
         assert!(engine.active.is_none());
         assert_eq!(engine.pending.len(), 1);
-        assert_eq!(engine.pending[0].video_id, "ccc");
+        assert_eq!(engine.pending[0].video_id, "bbb");
         assert!(engine.history.is_empty());
         assert_eq!(engine.session.len(), 2);
         assert_eq!(engine.session[0].status, HistoryStatus::Success);

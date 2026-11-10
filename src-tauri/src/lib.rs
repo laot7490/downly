@@ -24,6 +24,7 @@ pub fn run() {
                 .download_dir()
                 .unwrap_or_else(|_| runner::fallback_downloads());
             let engine = store::load(&data_dir, &downloads);
+            engine::staging::cleanup_engine_orphans(&data_dir, &engine);
             app.manage(Downly {
                 data_dir,
                 engine: std::sync::Mutex::new(engine),
@@ -32,6 +33,7 @@ pub fn run() {
                 download_cancel: std::sync::Mutex::new(None),
                 finish_live_recording: std::sync::atomic::AtomicBool::new(false),
                 live_capture: std::sync::Mutex::new(None),
+                tools_lock: tokio::sync::Mutex::const_new(()),
             });
             runner::migrate_thumbnails(app.handle());
             Ok(())
@@ -67,10 +69,7 @@ pub fn run() {
             commands::archive_completed_session_all,
             commands::delete_completed_session_item,
             commands::clear_history,
-            commands::update_ytdlp,
-            commands::ytdlp_version,
-            commands::ytdlp_info,
-            commands::check_ytdlp_update,
+            commands::tools,
             commands::app_version,
         ])
         .build(tauri::generate_context!())

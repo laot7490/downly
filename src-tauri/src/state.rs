@@ -13,6 +13,7 @@ pub struct Downly {
     pub download_cancel: Mutex<Option<Arc<AtomicBool>>>,
     pub finish_live_recording: AtomicBool,
     pub live_capture: Mutex<Option<String>>,
+    pub tools_lock: tokio::sync::Mutex<()>,
 }
 
 pub fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

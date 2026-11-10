@@ -22,7 +22,6 @@ pub fn probe_video_args(
         cookies_file,
     )
 }
-
 pub fn probe_playlist_args(
     url: &str,
     js_runtime: Option<&Path>,
@@ -141,10 +140,6 @@ fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-pub fn version_args() -> Vec<String> {
-    vec!["--version".into()]
-}
-
 #[cfg(test)]
 mod tests {
     use super::download_args;
@@ -162,7 +157,7 @@ mod tests {
         let args = download_args(
             &selection,
             Path::new("D:/Downloads/Downly"),
-            Path::new("D:/resources"),
+            Path::new("D:/Downly/bin"),
             "https://www.youtube.com/watch?v=abc",
             Some(Path::new("D:/bin/deno.exe")),
             Some("firefox"),
@@ -195,7 +190,7 @@ mod tests {
         let duplicate_args = download_args(
             &selection,
             Path::new("D:/Downloads/Downly"),
-            Path::new("D:/resources"),
+            Path::new("D:/Downly/bin"),
             "https://www.youtube.com/watch?v=abc",
             None,
             None,
@@ -225,7 +220,7 @@ mod tests {
         let live_args = download_args(
             &selection,
             Path::new("D:/Downloads/Downly"),
-            Path::new("D:/resources"),
+            Path::new("D:/Downly/bin"),
             "https://www.youtube.com/watch?v=live",
             None,
             None,
@@ -247,7 +242,7 @@ mod tests {
         let limited_args = download_args(
             &selection,
             Path::new("D:/Downloads/Downly"),
-            Path::new("D:/resources"),
+            Path::new("D:/Downly/bin"),
             "https://www.youtube.com/watch?v=abc",
             None,
             None,
@@ -272,7 +267,7 @@ mod tests {
         let clip_args = download_args(
             &clip_selection,
             Path::new("D:/Downloads/Downly"),
-            Path::new("D:/resources"),
+            Path::new("D:/Downly/bin"),
             "https://www.youtube.com/watch?v=abc",
             None,
             None,
@@ -293,7 +288,7 @@ mod tests {
     #[test]
     fn probe_args_match_the_lookup_kind() {
         let video = super::probe_video_args("https://youtu.be/abc", None, None, None);
-        assert!(video.windows(2).any(|pair| pair == ["-J", "--no-playlist"]));
+        assert!(video.windows(3).any(|args| args == ["-J", "--skip-download", "--no-playlist"]));
         assert!(!video.iter().any(|arg| arg == "--flat-playlist"));
         assert!(!video.iter().any(|arg| arg == "--js-runtimes"));
         assert!(!video.iter().any(|arg| arg == "--remote-components"));

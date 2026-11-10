@@ -10,6 +10,7 @@ pub mod proc;
 pub mod progress;
 pub mod queue;
 pub mod retry;
+pub mod staging;
 pub mod thumbnail;
-pub mod verify;
+pub mod tools;
 pub mod version;

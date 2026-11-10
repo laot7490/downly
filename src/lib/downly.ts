@@ -153,6 +153,7 @@ export type ActiveProgress = {
 	percent: number | null;
 	speed: string | null;
 	eta: string | null;
+	phase?: "transfer";
 };
 
 export type Snapshot = {
@@ -165,11 +166,14 @@ settings: { download_dir: string; cookies_browser: CookiesBrowser; cookies_updat
 
 export type CookiesBrowser = "disabled" | "firefox" | "manual";
 
-export type AppUpdate = {
-	version: string;
-	current: string;
-	newer: boolean;
-	url: string | null;
+export type ToolVersion = { id: string; version: string | null };
+export type ToolsAction = "ensure" | "check" | "update";
+export type ToolsStatus = { tools: ToolVersion[]; update_available: boolean };
+export type ToolProgress = {
+	tool: string;
+	phase: "checking" | "failed" | "downloading" | "verifying" | "installing";
+	received: number;
+	total: number | null;
 };
 
 export function linesOf(text: string): string[] {
@@ -219,15 +223,6 @@ export function formatUploadDate(value: string | null | undefined): string {
 	const compact = value.match(/^(\d{4})(\d{2})(\d{2})$/);
 	const date = compact ? new Date(Number(compact[1]), Number(compact[2]) - 1, Number(compact[3])) : new Date(value);
 	return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" }).format(date);
-}
-
-export function isYouTube(url: string): boolean {
-	try {
-		const host = new URL(url).hostname.replace(/^www\./, "");
-		return host === "youtube.com" || host === "youtu.be" || host.endsWith(".youtube.com");
-	} catch {
-		return false;
-	}
 }
 
 export function watchUrlWithoutList(url: string): string | null {

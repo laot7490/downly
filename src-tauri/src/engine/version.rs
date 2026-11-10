@@ -1,33 +1,7 @@
 use std::cmp::Ordering;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct AppUpdate {
-    pub version: String,
-    pub current: String,
-    pub newer: bool,
-    pub url: Option<String>,
-}
-
 pub fn version_is_newer(latest: &str, current: &str) -> bool {
     cmp_versions(latest, current) == Ordering::Greater
-}
-
-pub fn parse_release(body: &str, current: &str) -> Option<AppUpdate> {
-    let value: serde_json::Value = serde_json::from_str(body).ok()?;
-    let version = value.get("tag_name")?.as_str()?.trim().to_string();
-    if version.is_empty() {
-        return None;
-    }
-    let url = value
-        .get("html_url")
-        .and_then(|url| url.as_str())
-        .map(str::to_string);
-    Some(AppUpdate {
-        newer: version_is_newer(&version, current),
-        version,
-        current: current.to_string(),
-        url,
-    })
 }
 
 fn cmp_versions(left: &str, right: &str) -> Ordering {
@@ -73,7 +47,7 @@ fn normalize_version(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_release, version_is_newer};
+    use super::version_is_newer;
 
     #[test]
     fn compares_dotted_versions() {
@@ -85,18 +59,5 @@ mod tests {
         assert!(!version_is_newer("1.2", "1.2.0"));
         assert!(!version_is_newer("0.1.0", "0.2.0"));
         assert!(!version_is_newer("2026.10.26", "2026.10.26"));
-    }
-
-    #[test]
-    fn parses_github_release_without_downloading() {
-        let body = r#"{"tag_name":"v0.2.0","html_url":"https://example.com/rel"}"#;
-        let update = parse_release(body, "0.1.0").unwrap();
-        assert!(update.newer);
-        assert_eq!(update.version, "v0.2.0");
-        assert_eq!(update.current, "0.1.0");
-        assert_eq!(update.url.as_deref(), Some("https://example.com/rel"));
-        let same = parse_release(r#"{"tag_name":"v0.1.0"}"#, "0.1.0").unwrap();
-        assert!(!same.newer);
-        assert!(parse_release("not-json", "0.1.0").is_none());
     }
 }

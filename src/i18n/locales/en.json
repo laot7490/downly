@@ -80,6 +80,7 @@
 		"start": "Start",
 		"stop": "Stop",
 		"finishLiveRecording": "Finish recording",
+		"transferring": "Moving to download folder",
 		"remove": "Remove",
 		"cancelDownload": "Cancel download",
 		"moreActions": "More queue actions",
@@ -221,17 +222,14 @@
 			"manual": "Manual (cookies.txt)"
 		},
 		"saveFolder": "Save folder",
-		"ytdlp": "yt-dlp",
-		"ytdlpUnknown": "yt-dlp not found",
-		"updateYtdlp": "Update",
+		"thirdPartyTools": "3rd Party Tools",
+		"retryCheck": "Check again",
 		"appVersion": "Downly",
 		"checkUpdate": "Check for updates",
 		"updateNone": "No update found.",
 		"updateChecking": "Checking for updates…",
 		"updateCheckFailed": "Could not check for updates.",
 		"updateFound": "Version {{version}} is available.",
-		"ytdlpUpdated": "yt-dlp is now {{version}}.",
-		"ytdlpUpdateFailed": "yt-dlp update failed.",
 		"updateFailed": "Could not install the update.",
 		"updateDownloading": "Downloading update…",
 		"updateProgress": "Downloading update ({{percent}}%)",
@@ -244,7 +242,6 @@
 		"updateApp": "Update",
 		"updateAction": "Update",
 		"upToDate": "App is up to date",
-		"ytdlpFound": "yt-dlp {{version}} is available.",
 		"languages": {
 			"en": "English",
 			"tr": "Turkish"
@@ -253,6 +250,29 @@
 			"system": "System",
 			"light": "Light",
 			"dark": "Dark"
+		}
+	},
+	"tools": {
+		"installTitle": "Downloading required tools",
+		"installBody": "Required tools are being installed so downloads can work. The app is unavailable until installation finishes.",
+		"installFailed": "Tool installation could not finish.",
+		"checkFailed": "Could not check for tool updates.",
+		"checking": "Checking tools…",
+		"failed": "Could not check {{tool}}.",
+		"downloading": "Downloading {{tool}}…",
+		"verifying": "Verifying {{tool}}…",
+		"installing": "Installing {{tool}}…",
+		"retry": "Retry",
+		"quit": "Quit app",
+		"updateAvailable": "An update is available for these tools.",
+		"allUpToDate": "All tools are up to date.",
+		"updated": "Third-party tools are up to date.",
+		"updating": "Updating third-party tools…",
+		"names": {
+			"yt-dlp": "yt-dlp",
+			"ffmpeg": "FFmpeg",
+			"ffprobe": "ffprobe",
+			"deno": "Deno"
 		}
 	},
 	"close": {

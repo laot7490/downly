@@ -1,9 +1,5 @@
-use crate::engine::bins::ytdlp_filename;
 use crate::engine::media::{PlaylistSummary, ProbeOutcome};
 use crate::engine::queue::{CookiesBrowser, EnqueueItem, EnqueueOutcome, Snapshot};
-use crate::engine::verify::{YTDLP_EXE_URL, YTDLP_SUMS_URL, install_verified};
-use crate::engine::version::{AppUpdate, parse_release, version_is_newer};
-use crate::net;
 use crate::runner;
 use crate::state::Downly;
 use tauri::{AppHandle, Manager};
@@ -11,7 +7,6 @@ use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
 pub async fn probe(app: AppHandle, url: String) -> Result<ProbeOutcome, String> {
-    runner::ensure_deno(&app).await?;
     let downly = app.state::<Downly>();
     let _permit = downly.metadata_slots.clone().acquire_owned().await.map_err(|_| "application is shutting down".to_string())?;
     tauri::async_runtime::spawn_blocking(move || runner::probe(&app, url))
@@ -21,7 +16,6 @@ pub async fn probe(app: AppHandle, url: String) -> Result<ProbeOutcome, String> 
 
 #[tauri::command]
 pub async fn expand_playlist(app: AppHandle, url: String) -> Result<PlaylistSummary, String> {
-    runner::ensure_deno(&app).await?;
     let downly = app.state::<Downly>();
     let _permit = downly.metadata_slots.clone().acquire_owned().await.map_err(|_| "application is shutting down".to_string())?;
     tauri::async_runtime::spawn_blocking(move || runner::expand_playlist(&app, url))
@@ -56,8 +50,7 @@ pub fn update_queue_metadata(
 }
 
 #[tauri::command]
-pub async fn start(app: AppHandle) -> Result<(), String> {
-    runner::ensure_deno(&app).await?;
+pub fn start(app: AppHandle) -> Result<(), String> {
     runner::start(&app)
 }
 
@@ -206,62 +199,11 @@ pub fn clear_history(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
-    if !cfg!(windows) {
-        return Err("yt-dlp update supports windows only".into());
-    }
-    let bytes = net::get_bytes(YTDLP_EXE_URL).await?;
-    let sums = net::get_text(YTDLP_SUMS_URL).await?;
-    let dir = app.state::<Downly>().data_dir.join("bin");
-    install_verified(&dir, ytdlp_filename(), &bytes, &sums)?;
-    runner::ensure_deno(&app).await?;
-    let info = tauri::async_runtime::spawn_blocking(move || runner::ytdlp_info(&app))
-        .await
-        .map_err(|err| err.to_string())??;
-    Ok(info.version)
-}
-
-#[tauri::command]
-pub async fn ytdlp_version(app: AppHandle) -> Result<String, String> {
-    let info = tauri::async_runtime::spawn_blocking(move || runner::ytdlp_info(&app))
-        .await
-        .map_err(|err| err.to_string())??;
-    Ok(info.version)
-}
-
-#[tauri::command]
-pub async fn ytdlp_info(app: AppHandle) -> Result<runner::YtdlpInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || runner::ytdlp_info(&app))
-        .await
-        .map_err(|err| err.to_string())?
-}
-
-#[tauri::command]
-pub async fn check_ytdlp_update(app: AppHandle) -> Result<Option<AppUpdate>, String> {
-    let current = tauri::async_runtime::spawn_blocking({
-        let app = app.clone();
-        move || runner::ytdlp_info(&app)
-    })
-    .await
-    .map_err(|err| err.to_string())??
-    .version;
-    let text = net::get_text("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest").await;
-    if let Ok(text) = text {
-        if let Some(update) = parse_release(&text, &current) {
-            return Ok(Some(update));
-        }
-    }
-    let latest_url = net::get_final_url("https://github.com/yt-dlp/yt-dlp/releases/latest").await?;
-    let tag = latest_url
-        .strip_prefix("https://github.com/yt-dlp/yt-dlp/releases/tag/")
-        .filter(|tag| !tag.is_empty())
-        .ok_or_else(|| "latest yt-dlp release tag missing".to_string())?;
-    Ok(Some(AppUpdate {
-        version: tag.to_string(),
-        current: current.clone(),
-        newer: version_is_newer(tag, &current),
-        url: Some(latest_url),
-    }))
+pub async fn tools(
+    app: AppHandle,
+    action: crate::engine::tools::ToolsAction,
+) -> Result<crate::engine::tools::ToolsStatus, String> {
+    crate::engine::tools::run(&app, action).await
 }
 
 #[tauri::command]

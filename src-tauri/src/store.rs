@@ -57,6 +57,14 @@ pub fn load(data_dir: &Path, downloads: &Path) -> Engine {
     engine.normalize_pending_order();
     engine.history = history;
     engine.session = queue.session;
+    let history_ids = engine
+        .history
+        .iter()
+        .map(|item| item.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    engine
+        .session
+        .retain(|item| !history_ids.contains(item.id.as_str()));
     if engine.archive_session_all() || needs_order_migration {
         let _ = save(data_dir, &engine);
     }
@@ -74,8 +82,8 @@ pub fn save(data_dir: &Path, engine: &Engine) -> Result<(), String> {
         session: engine.session.clone(),
         order_version: 1,
     };
-    write_json(&data_dir.join("queue.json"), &queue)?;
     write_json(&data_dir.join("history.json"), &engine.history)?;
+    write_json(&data_dir.join("queue.json"), &queue)?;
     write_json(&data_dir.join("settings.json"), &engine.settings)?;
     Ok(())
 }
@@ -96,7 +104,7 @@ pub fn prepare_dir(path: &str) -> Result<PathBuf, String> {
 
 fn normalize_windows_path(path: &str) -> String {
     if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
-        return format!(r"\{}", path);
+        return format!(r"\\{}", path);
     }
     path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
 }
@@ -140,24 +148,61 @@ fn read_json<T: DeserializeOwned + Default>(path: &Path) -> T {
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|err| err.to_string())?;
+    if fs::read(path).is_ok_and(|existing| existing == bytes) {
+        return Ok(());
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, &bytes).map_err(|err| err.to_string())?;
-    if path.exists() {
-        fs::remove_file(path).map_err(|err| err.to_string())?;
+    let result = (|| {
+        let mut file = fs::File::create(&tmp).map_err(|err| err.to_string())?;
+        std::io::Write::write_all(&mut file, &bytes).map_err(|err| err.to_string())?;
+        file.sync_all().map_err(|err| err.to_string())?;
+        replace_file(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(tmp);
     }
-    fs::rename(&tmp, path).map_err(|err| err.to_string())
+    result
+}
+
+#[cfg(windows)]
+pub(crate) fn replace_file(source: &Path, target: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW};
+
+    let source = source.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+    let target = target.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+    let flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
+    let ok = unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), flags) };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error().to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn replace_file(source: &Path, target: &Path) -> Result<(), String> {
+    fs::rename(source, target).map_err(|err| err.to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{load, save};
+    use super::{load, normalize_windows_path, save};
     use crate::engine::format::{Preset, Selection};
     use crate::engine::queue::{Engine, EnqueueItem, HistoryStatus};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn normalizes_extended_unc_paths_without_losing_the_network_prefix() {
+        assert_eq!(
+            normalize_windows_path(r"\\?\UNC\server\share\folder"),
+            r"\\server\share\folder"
+        );
+    }
 
     #[test]
     fn reload_demotes_active_and_keeps_settings() {

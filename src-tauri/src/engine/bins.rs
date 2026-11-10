@@ -6,25 +6,22 @@ pub struct ToolPaths {
     pub ffmpeg_dir: PathBuf,
 }
 
-pub fn resolve_ytdlp(data_dir: &Path, bundled: &[PathBuf]) -> Result<PathBuf, String> {
+pub fn resolve_ytdlp(data_dir: &Path) -> Result<PathBuf, String> {
     let updated = data_dir.join("bin").join(ytdlp_filename());
     if updated.is_file() {
         return Ok(updated);
     }
-    first_file(bundled).ok_or_else(|| "yt-dlp not found".to_string())
+    Err("yt-dlp not found".into())
 }
 
-pub fn resolve_ffmpeg(bundled: &[PathBuf]) -> Result<PathBuf, String> {
-    first_file(bundled).ok_or_else(|| "ffmpeg not found".to_string())
+pub fn resolve_ffmpeg(data_dir: &Path) -> Result<PathBuf, String> {
+    let path = data_dir.join("bin").join(ffmpeg_filename());
+    path.is_file().then_some(path).ok_or_else(|| "ffmpeg not found".into())
 }
 
-pub fn resolve_tools(
-    data_dir: &Path,
-    ytdlp_bundled: &[PathBuf],
-    ffmpeg_bundled: &[PathBuf],
-) -> Result<ToolPaths, String> {
-    let ytdlp = resolve_ytdlp(data_dir, ytdlp_bundled)?;
-    let ffmpeg = resolve_ffmpeg(ffmpeg_bundled)?;
+pub fn resolve_tools(data_dir: &Path) -> Result<ToolPaths, String> {
+    let ytdlp = resolve_ytdlp(data_dir)?;
+    let ffmpeg = resolve_ffmpeg(data_dir)?;
     let ffmpeg_dir = ffmpeg
         .parent()
         .ok_or_else(|| "ffmpeg not found".to_string())?
@@ -52,13 +49,9 @@ pub fn ffmpeg_filename() -> &'static str {
     }
 }
 
-fn first_file(paths: &[PathBuf]) -> Option<PathBuf> {
-    paths.iter().find(|path| path.is_file()).cloned()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{resolve_ffmpeg, resolve_ytdlp};
+    use super::{resolve_ffmpeg, resolve_tools, resolve_ytdlp};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -77,33 +70,33 @@ mod tests {
     }
 
     #[test]
-    fn updated_ytdlp_wins_over_bundled() {
+    fn ytdlp_resolves_from_the_local_bin() {
         let data = scratch("data");
-        let bundled_dir = scratch("bundle");
-        let bundled = bundled_dir.join(super::ytdlp_filename());
-        fs::write(&bundled, b"old").unwrap();
         fs::create_dir_all(data.join("bin")).unwrap();
         let updated = data.join("bin").join(super::ytdlp_filename());
         fs::write(&updated, b"new").unwrap();
-        let resolved = resolve_ytdlp(&data, &[bundled]).unwrap();
+        let resolved = resolve_ytdlp(&data).unwrap();
         assert_eq!(fs::read(resolved).unwrap(), b"new");
         let _ = fs::remove_dir_all(data);
-        let _ = fs::remove_dir_all(bundled_dir);
     }
 
     #[test]
     fn missing_binaries_are_plain_errors() {
         let data = scratch("empty");
-        let missing = data.join("nope").join(super::ytdlp_filename());
         assert_eq!(
-            resolve_ytdlp(&data, std::slice::from_ref(&missing)).unwrap_err(),
+            resolve_ytdlp(&data).unwrap_err(),
             "yt-dlp not found"
         );
-        assert_eq!(resolve_ffmpeg(&[missing]).unwrap_err(), "ffmpeg not found");
-        let ffmpeg = data.join(super::ffmpeg_filename());
+        assert_eq!(
+            resolve_tools(&data).unwrap_err(),
+            "yt-dlp not found"
+        );
+        assert_eq!(resolve_ffmpeg(&data).unwrap_err(), "ffmpeg not found");
+        fs::create_dir_all(data.join("bin")).unwrap();
+        let ffmpeg = data.join("bin").join(super::ffmpeg_filename());
         fs::write(&ffmpeg, b"ff").unwrap();
         assert_eq!(
-            resolve_ffmpeg(std::slice::from_ref(&ffmpeg)).unwrap(),
+            resolve_ffmpeg(&data).unwrap(),
             ffmpeg
         );
         let _ = fs::remove_dir_all(data);
